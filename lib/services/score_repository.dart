@@ -119,7 +119,8 @@ class ScoreRepository {
                 .limit(10)
                 .get();
 
-        return snapshot.docs.map((doc) {
+        final byPlayerId = <String, LeaderboardEntry>{};
+        for (final doc in snapshot.docs) {
           final data = doc.data();
           final bestScore = (data['bestScore'] as num?)?.toInt() ?? 0;
           final playedAtRaw = data['playedAt'];
@@ -129,13 +130,23 @@ class ScoreRepository {
                   : DateTime.tryParse(playedAtRaw?.toString() ?? '') ??
                       DateTime.now();
 
-          return LeaderboardEntry(
+          final entry = LeaderboardEntry(
             playerId: data['playerId']?.toString() ?? doc.id,
             playerName: data['playerName']?.toString() ?? 'Người chơi',
             bestScore: bestScore,
             playedAt: playedAt,
           );
-        }).toList();
+
+          final existing = byPlayerId[entry.playerId];
+          if (existing == null || entry.bestScore > existing.bestScore) {
+            byPlayerId[entry.playerId] = entry;
+          }
+        }
+
+        final deduplicated =
+            byPlayerId.values.toList()
+              ..sort((a, b) => b.bestScore.compareTo(a.bestScore));
+        return deduplicated.take(10).toList();
       } catch (error) {
         debugPrint('[ScoreRepository] getTop10 remote error: $error');
         // fallback local
@@ -217,13 +228,58 @@ class ScoreRepository {
     if (!_canUseFirebase) return false;
 
     try {
-      final docRef = _firestore!.collection('leaderboard').doc(playerId);
-      final current = await docRef.get();
+      final leaderboard = _firestore!.collection('leaderboard');
+      final docRef = leaderboard.doc(playerId);
+      var current = await docRef.get();
+
+      if (!current.exists) {
+        final samePlayerSnapshot =
+            await leaderboard
+                .where('playerId', isEqualTo: playerId)
+                .limit(1)
+                .get();
+
+        if (samePlayerSnapshot.docs.isNotEmpty) {
+          final legacyData = samePlayerSnapshot.docs.first.data();
+          final legacyBest = (legacyData['bestScore'] as num?)?.toInt() ?? 0;
+          final legacyPlayedAtRaw = legacyData['playedAt'];
+          final legacyPlayedAt =
+              legacyPlayedAtRaw is Timestamp
+                  ? legacyPlayedAtRaw
+                  : Timestamp.fromDate(DateTime.now());
+
+          await docRef.set({
+            'playerId': playerId,
+            'playerName': legacyData['playerName']?.toString() ?? playerName,
+            'bestScore': legacyBest,
+            'playedAt': legacyPlayedAt,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+
+          current = await docRef.get();
+        }
+      }
 
       if (current.exists) {
         final data = current.data()!;
         final remoteBest = (data['bestScore'] as num?)?.toInt() ?? 0;
+        final remoteName = data['playerName']?.toString().trim() ?? '';
         if (remoteBest >= bestScore) {
+          if (remoteName != playerName.trim()) {
+            final remotePlayedAtRaw = data['playedAt'];
+            final remotePlayedAt =
+                remotePlayedAtRaw is Timestamp
+                    ? remotePlayedAtRaw
+                    : Timestamp.fromDate(DateTime.now());
+
+            await docRef.set({
+              'playerId': playerId,
+              'playerName': playerName,
+              'bestScore': remoteBest,
+              'playedAt': remotePlayedAt,
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+          }
           return true;
         }
       }

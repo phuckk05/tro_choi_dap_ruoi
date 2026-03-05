@@ -21,13 +21,30 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
   static int highScore = 0;
   int combo = 0;
   double gameTime = 60.0;
-  double spawnTimer = 0;
-  final double spawnInterval = 0.8;
+  double normalSpawnTimer = 0;
+  double elapsedTime = 0;
   final Random random = Random();
   bool gameOver = false;
   bool _initialized = false;
   int _lastShownSecond = 60;
   int _comboResetVersion = 0;
+  final List<_PendingCollisionSpawn> _pendingCollisionSpawns = [];
+  final Set<int> _lockedFlyIds = <int>{};
+  int _edgeSpawnCursor = 0;
+  final List<Color> _mutantColors = const [
+    Color(0xFF8E24AA),
+    Color(0xFF00897B),
+    Color(0xFFEF6C00),
+    Color(0xFF3949AB),
+  ];
+  static const int _maxChildFlies = 100;
+  static const int _maxTotalFlies = 240;
+
+  int get _activeChildFlyCount =>
+      children
+          .whereType<Fly>()
+          .where((fly) => fly.isMutant && !fly.isSwatted)
+          .length;
 
   late ScoreCard scoreCard;
 
@@ -56,9 +73,7 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
     if (_initialized || size.x <= 0 || size.y <= 0) return;
     _initialized = true;
     _addBackgroundElements();
-    for (int i = 0; i < 4; i++) {
-      spawnFly();
-    }
+    _spawnInitialEdgeWave();
   }
 
   void _addBackgroundElements() {
@@ -91,6 +106,7 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
     if (gameOver) return;
 
     gameTime -= dt;
+    elapsedTime += dt;
     if (gameTime <= 0) {
       gameTime = 0;
       gameOver = true;
@@ -104,19 +120,112 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
       scoreCard.updateTime(currentSecond);
     }
 
-    spawnTimer += dt;
-    if (spawnTimer >= spawnInterval) {
-      spawnTimer = 0;
-      spawnFly();
+    _updatePendingCollisionSpawns(dt);
+    _handleFlyCollisionSpawn();
+
+    normalSpawnTimer += dt;
+    while (normalSpawnTimer >= 1.0) {
+      normalSpawnTimer -= 1.0;
+      _spawnNormalFliesFromEdges(count: 2);
     }
   }
 
-  void spawnFly() {
-    final flyCount = children.whereType<Fly>().length;
-    if (flyCount >= 12) return;
+  void _spawnInitialEdgeWave() {
+    _spawnEdgeFly(_Edge.top);
+    _spawnEdgeFly(_Edge.right);
+    _spawnEdgeFly(_Edge.bottom);
+    _spawnEdgeFly(_Edge.left);
+  }
 
-    final x = random.nextDouble() * (size.x - 100) + 50;
-    final y = random.nextDouble() * (size.y - 300) + 150;
+  void _spawnNormalFliesFromEdges({required int count}) {
+    for (int index = 0; index < count; index++) {
+      final edge = _Edge.values[_edgeSpawnCursor % _Edge.values.length];
+      _edgeSpawnCursor++;
+      _spawnEdgeFly(edge);
+    }
+  }
+
+  void _spawnEdgeFly(_Edge edge) {
+    final flyCount = children.whereType<Fly>().length;
+    if (flyCount >= _maxTotalFlies) return;
+
+    late final Vector2 startPosition;
+    switch (edge) {
+      case _Edge.top:
+        startPosition = Vector2(40 + random.nextDouble() * (size.x - 80), -40);
+        break;
+      case _Edge.right:
+        startPosition = Vector2(
+          size.x + 40,
+          160 + random.nextDouble() * (size.y - 330),
+        );
+        break;
+      case _Edge.bottom:
+        startPosition = Vector2(
+          40 + random.nextDouble() * (size.x - 80),
+          size.y + 40,
+        );
+        break;
+      case _Edge.left:
+        startPosition = Vector2(
+          -40,
+          160 + random.nextDouble() * (size.y - 330),
+        );
+        break;
+    }
+
+    final center = Vector2(size.x * 0.5, size.y * 0.55);
+    var direction = center - startPosition;
+    if (direction.length2 < 0.0001) {
+      direction = Vector2(1, 0);
+    } else {
+      direction.normalize();
+    }
+
+    final speed = 58 + random.nextDouble() * 30;
+    add(
+      Fly(
+        position: startPosition,
+        game: this,
+        flySize: 40 + random.nextDouble() * 20,
+        pointValue: 2,
+        initialVelocity: direction * speed,
+      ),
+    );
+  }
+
+  void spawnFly({
+    bool isMutant = false,
+    Vector2? atPosition,
+    Color? mutantColor,
+  }) {
+    final flyCount = children.whereType<Fly>().length;
+    if (flyCount >= _maxTotalFlies) return;
+
+    final x =
+        atPosition?.x.clamp(50, size.x - 50) ??
+        (random.nextDouble() * (size.x - 100) + 50);
+    final y =
+        atPosition?.y.clamp(150, size.y - 150) ??
+        (random.nextDouble() * (size.y - 300) + 150);
+
+    if (isMutant) {
+      if (_activeChildFlyCount >= _maxChildFlies) return;
+      add(
+        Fly(
+          position: Vector2(x.toDouble(), y.toDouble()),
+          game: this,
+          flySize: 48,
+          pointValue: 4,
+          isMutant: true,
+          canReproduce: false,
+          mutantColor:
+              mutantColor ??
+              _mutantColors[random.nextInt(_mutantColors.length)],
+        ),
+      );
+      return;
+    }
 
     final sizes = [40.0, 55.0, 70.0];
     final points = [3, 2, 1];
@@ -124,12 +233,108 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
 
     add(
       Fly(
-        position: Vector2(x, y),
+        position: Vector2(x.toDouble(), y.toDouble()),
         game: this,
         flySize: sizes[sizeIndex],
         pointValue: points[sizeIndex],
       ),
     );
+  }
+
+  void _updatePendingCollisionSpawns(double dt) {
+    if (_pendingCollisionSpawns.isEmpty) return;
+
+    final completed = <_PendingCollisionSpawn>[];
+
+    for (final pending in _pendingCollisionSpawns) {
+      pending.remaining -= dt;
+      if (pending.remaining > 0) continue;
+
+      final firstAlive =
+          pending.first.parent != null && !pending.first.isSwatted;
+      final secondAlive =
+          pending.second.parent != null && !pending.second.isSwatted;
+
+      if (firstAlive && secondAlive) {
+        final liveFlyCount =
+            children.whereType<Fly>().where((fly) => !fly.isSwatted).length;
+        final availableSlots = (_maxTotalFlies - liveFlyCount).clamp(0, 1);
+        final availableChildren = (_maxChildFlies - _activeChildFlyCount).clamp(
+          0,
+          1,
+        );
+        final midpoint = (pending.first.position + pending.second.position) / 2;
+        final availableBirths = min(availableSlots, availableChildren);
+        if (availableBirths >= 1) {
+          const childCount = 1;
+          for (int index = 0; index < childCount; index++) {
+            final angle = random.nextDouble() * 2 * pi;
+            final distance = 12 + random.nextDouble() * 22;
+            final offset = Vector2(cos(angle), sin(angle)) * distance;
+            spawnFly(isMutant: true, atPosition: midpoint + offset);
+          }
+        }
+
+        var separationDir = pending.first.position - pending.second.position;
+        if (separationDir.length2 < 0.0001) {
+          final angle = random.nextDouble() * 2 * pi;
+          separationDir = Vector2(cos(angle), sin(angle));
+        }
+        separationDir.normalize();
+        pending.first.releaseCollisionLock(pushDirection: separationDir);
+        pending.second.releaseCollisionLock(pushDirection: -separationDir);
+      } else {
+        pending.first.releaseCollisionLock();
+        pending.second.releaseCollisionLock();
+      }
+
+      _lockedFlyIds.remove(identityHashCode(pending.first));
+      _lockedFlyIds.remove(identityHashCode(pending.second));
+      completed.add(pending);
+    }
+
+    _pendingCollisionSpawns.removeWhere(completed.contains);
+  }
+
+  void _handleFlyCollisionSpawn() {
+    final activeFlies = children
+        .whereType<Fly>()
+        .where((fly) => !fly.isSwatted)
+        .toList(growable: false);
+
+    for (int i = 0; i < activeFlies.length; i++) {
+      for (int j = i + 1; j < activeFlies.length; j++) {
+        final first = activeFlies[i];
+        final second = activeFlies[j];
+        final collisionDistance = (first.flySize + second.flySize) * 0.32;
+        if (first.position.distanceToSquared(second.position) >
+            collisionDistance * collisionDistance) {
+          continue;
+        }
+
+        if (_isFlyLocked(first) || _isFlyLocked(second)) {
+          continue;
+        }
+
+        if (!first.canStartReproduction || !second.canStartReproduction) {
+          continue;
+        }
+
+        final firstId = identityHashCode(first);
+        final secondId = identityHashCode(second);
+        _lockedFlyIds.add(firstId);
+        _lockedFlyIds.add(secondId);
+        first.lockForCollisionSpawn();
+        second.lockForCollisionSpawn();
+        _pendingCollisionSpawns.add(
+          _PendingCollisionSpawn(first: first, second: second, remaining: 1.0),
+        );
+      }
+    }
+  }
+
+  bool _isFlyLocked(Fly fly) {
+    return _lockedFlyIds.contains(identityHashCode(fly));
   }
 
   void flySwatted(Vector2 position, int points) {
@@ -191,15 +396,23 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
   }
 }
 
+enum _Edge { top, right, bottom, left }
+
 class Fly extends PositionComponent with TapCallbacks {
   final FlySwatterGame game;
   final double flySize;
   final int pointValue;
+  final bool isMutant;
+  final bool canReproduce;
+  final Color mutantColor;
+  final Vector2? initialVelocity;
   final Random random = Random();
   Vector2 velocity = Vector2.zero();
   double changeDirectionTimer = 0;
   final double changeDirectionInterval = 1.5;
   bool isSwatted = false;
+  bool _collisionLocked = false;
+  double _reproduceCooldown = 0;
 
   double wingAngle = 0;
   double animationTime = 0;
@@ -277,17 +490,25 @@ class Fly extends PositionComponent with TapCallbacks {
     required this.game,
     this.flySize = 60.0,
     this.pointValue = 1,
+    this.isMutant = false,
+    this.canReproduce = true,
+    this.mutantColor = const Color(0xFF8E24AA),
+    this.initialVelocity,
   }) : super(size: Vector2.all(flySize), anchor: Anchor.center, priority: 1);
 
   @override
   Future<void> onLoad() async {
-    _changeDirection();
+    if (initialVelocity != null && initialVelocity!.length2 > 0) {
+      velocity = initialVelocity!.clone();
+    } else {
+      _changeDirection();
+    }
   }
 
   void _changeDirection() {
     final angle = random.nextDouble() * 2 * pi;
-    final baseSpeed = 80.0 - (flySize - 40) * 0.5;
-    final speed = baseSpeed + random.nextDouble() * 50;
+    final baseSpeed = (canReproduce ? 54.0 : 74.0) - (flySize - 40) * 0.4;
+    final speed = baseSpeed + random.nextDouble() * (canReproduce ? 26 : 42);
     velocity = Vector2(cos(angle), sin(angle)) * speed;
   }
 
@@ -296,6 +517,19 @@ class Fly extends PositionComponent with TapCallbacks {
     super.update(dt);
 
     if (isSwatted) return;
+
+    if (_reproduceCooldown > 0) {
+      _reproduceCooldown -= dt;
+      if (_reproduceCooldown < 0) {
+        _reproduceCooldown = 0;
+      }
+    }
+
+    if (_collisionLocked) {
+      animationTime += dt * 12;
+      wingAngle = sin(animationTime) * 0.12;
+      return;
+    }
 
     animationTime += dt * 15;
     wingAngle = sin(animationTime) * 0.22;
@@ -333,17 +567,82 @@ class Fly extends PositionComponent with TapCallbacks {
     final scale = flySize / 55;
     canvas.scale(scale, scale);
 
+    final bodyPaint =
+        isMutant
+            ? (Paint()
+              ..shader = ui.Gradient.radial(const Offset(-3, -5), 20, [
+                mutantColor.withValues(alpha: 0.95),
+                const Color(0xFF1A1A1A),
+              ]))
+            : _bodyPaint;
+    final headPaint = isMutant ? (Paint()..color = mutantColor) : _headPaint;
+    final eyePaint =
+        isMutant
+            ? (Paint()
+              ..shader = ui.Gradient.radial(Offset.zero, 5, [
+                mutantColor.withValues(alpha: 0.9),
+                mutantColor.withValues(alpha: 0.55),
+              ]))
+            : _eyePaint;
+    final wingFillPaint =
+        isMutant
+            ? (Paint()
+              ..shader = ui.Gradient.linear(
+                const Offset(0, 0),
+                const Offset(28, 12),
+                [
+                  mutantColor.withValues(alpha: 0.8),
+                  mutantColor.withValues(alpha: 0.45),
+                  const Color(0xFFCFD8DC),
+                ],
+                [0.0, 0.55, 1.0],
+              )
+              ..style = PaintingStyle.fill)
+            : _wingFillPaint;
+
+    final wingStrokePaint =
+        isMutant
+            ? (Paint()
+              ..color = mutantColor.withValues(alpha: 0.9)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.2)
+            : _wingStrokePaint;
+    final wingVeinPaint =
+        isMutant
+            ? (Paint()
+              ..color = mutantColor.withValues(alpha: 0.7)
+              ..strokeWidth = 0.9)
+            : _wingVeinPaint;
+    final wingSubVeinPaint =
+        isMutant
+            ? (Paint()
+              ..color = mutantColor.withValues(alpha: 0.48)
+              ..strokeWidth = 0.7)
+            : _wingSubVeinPaint;
+
     canvas.save();
     canvas.translate(-14, -11);
     canvas.rotate(wingAngle);
-    _drawWing(canvas);
+    _drawWing(
+      canvas,
+      wingFillPaint,
+      wingStrokePaint,
+      wingVeinPaint,
+      wingSubVeinPaint,
+    );
     canvas.restore();
 
     canvas.save();
     canvas.translate(14, -11);
     canvas.scale(-1, 1);
     canvas.rotate(-wingAngle);
-    _drawWing(canvas);
+    _drawWing(
+      canvas,
+      wingFillPaint,
+      wingStrokePaint,
+      wingVeinPaint,
+      wingSubVeinPaint,
+    );
     canvas.restore();
 
     canvas.drawLine(const Offset(-9, -8), const Offset(-16, -3), _legPaint);
@@ -355,7 +654,7 @@ class Fly extends PositionComponent with TapCallbacks {
 
     canvas.drawOval(
       Rect.fromCenter(center: Offset.zero, width: 24, height: 36),
-      _bodyPaint,
+      bodyPaint,
     );
 
     canvas.drawOval(
@@ -363,15 +662,15 @@ class Fly extends PositionComponent with TapCallbacks {
       _bodyHighlightPaint,
     );
 
-    canvas.drawCircle(const Offset(0, -18), 11, _headPaint);
+    canvas.drawCircle(const Offset(0, -18), 11, headPaint);
 
     canvas.drawOval(
       Rect.fromCenter(center: const Offset(-5, -18), width: 9, height: 10),
-      _eyePaint,
+      eyePaint,
     );
     canvas.drawOval(
       Rect.fromCenter(center: const Offset(5, -18), width: 9, height: 10),
-      _eyePaint,
+      eyePaint,
     );
 
     canvas.drawCircle(const Offset(-4, -19), 2.5, _eyeHighlightPaint);
@@ -380,9 +679,15 @@ class Fly extends PositionComponent with TapCallbacks {
     canvas.restore();
   }
 
-  void _drawWing(Canvas canvas) {
-    canvas.drawPath(_wingPath, _wingFillPaint);
-    canvas.drawPath(_wingPath, _wingStrokePaint);
+  void _drawWing(
+    Canvas canvas,
+    Paint wingFillPaint,
+    Paint wingStrokePaint,
+    Paint wingVeinPaint,
+    Paint wingSubVeinPaint,
+  ) {
+    canvas.drawPath(_wingPath, wingFillPaint);
+    canvas.drawPath(_wingPath, wingStrokePaint);
 
     canvas.drawLine(const Offset(1, 2), const Offset(24, 2), _wingVeinPaint);
     canvas.drawLine(const Offset(1, 5), const Offset(20, 8), _wingVeinPaint);
@@ -413,6 +718,42 @@ class Fly extends PositionComponent with TapCallbacks {
       });
     }
   }
+
+  void lockForCollisionSpawn() {
+    _collisionLocked = true;
+    velocity = Vector2.zero();
+  }
+
+  void releaseCollisionLock({Vector2? pushDirection}) {
+    if (!_collisionLocked || isSwatted) return;
+    _collisionLocked = false;
+
+    final direction = pushDirection;
+    if (direction != null && direction.length2 > 0) {
+      final normalized = direction.normalized();
+      velocity = normalized * (130 + random.nextDouble() * 40);
+      position += normalized * 10;
+    } else {
+      _changeDirection();
+    }
+
+    _reproduceCooldown = 0.85;
+  }
+
+  bool get canStartReproduction =>
+      canReproduce && !_collisionLocked && _reproduceCooldown <= 0;
+}
+
+class _PendingCollisionSpawn {
+  final Fly first;
+  final Fly second;
+  double remaining;
+
+  _PendingCollisionSpawn({
+    required this.first,
+    required this.second,
+    required this.remaining,
+  });
 }
 
 class Cloud extends PositionComponent {

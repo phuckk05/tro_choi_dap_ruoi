@@ -36,13 +36,20 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     final profile = await PlayerProfileService.instance.ensureProfile();
     if (!mounted) return;
     setState(() {
-      _nameController.text = profile.playerName;
+      _setNameField(profile.playerName);
       _loadingProfile = false;
     });
   }
 
+  void _setNameField(String value) {
+    _nameController
+      ..text = value
+      ..selection = TextSelection.collapsed(offset: value.length);
+  }
+
   Future<void> _startGame() async {
     final name = _nameController.text.trim();
+    _setNameField(name);
     if (name.length < 2) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Vui lòng nhập tên từ 2 ký tự trở lên.')),
@@ -66,7 +73,15 @@ class _MainMenuScreenState extends State<MainMenuScreen>
       return;
     }
 
-    await PlayerProfileService.instance.ensureProfile(preferredName: name);
+    final updatedProfile = await PlayerProfileService.instance.ensureProfile(
+      preferredName: name,
+    );
+    if (mounted) {
+      setState(() {
+        _setNameField(updatedProfile.playerName);
+      });
+    }
+    await ScoreRepository.instance.syncPlayerProfileName(updatedProfile);
     if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/game');
   }

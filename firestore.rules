@@ -28,12 +28,13 @@ service cloud.firestore {
           'playedAt',
           'updatedAt'
         ])
-        && request.resource.data.playerId == resource.data.playerId
+        && request.resource.data.playerId == playerId
         && request.resource.data.playerName is string
         && request.resource.data.playerName.size() > 0
         && request.resource.data.playerName.size() <= 30
         && request.resource.data.bestScore is int
-        && request.resource.data.bestScore >= resource.data.bestScore
+        && (!(resource.data.bestScore is int)
+            || request.resource.data.bestScore >= resource.data.bestScore)
         && request.resource.data.playedAt is timestamp;
 
       allow delete: if false;
