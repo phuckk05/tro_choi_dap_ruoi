@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -37,16 +38,44 @@ class ScoreRepository {
   Future<void> recordGameResult(
     PlayerProfile profile,
     int score,
-    DateTime playedAt,
-  ) async {
-    await _db.insertScoreEvent(profile, score, playedAt);
+    DateTime playedAt, {
+    int? defeatSeconds,
+    int? flyCountAtDefeat,
+  }) async {
+    await _db.insertScoreEvent(
+      profile,
+      score,
+      playedAt,
+      defeatSeconds: defeatSeconds,
+      secendtiem: defeatSeconds,
+      flyCountAtDefeat: flyCountAtDefeat,
+    );
 
     final shouldSyncBestRecord = await _db.upsertPlayerBest(
       profile,
       score,
       playedAt,
     );
-    if (!shouldSyncBestRecord) return;
+
+    if (!shouldSyncBestRecord) {
+      if (!_canSyncNow || defeatSeconds == null) return;
+
+      final playerBest = await _db.getPlayerBestRecordByPlayerId(
+        profile.playerId,
+      );
+      if (playerBest == null) return;
+
+      unawaited(
+        _syncSingleBestScore(
+          playerId: playerBest.playerId,
+          playerName: playerBest.playerName,
+          bestScore: playerBest.bestScore,
+          playedAt: playerBest.playedAt,
+          secendtiem: defeatSeconds,
+        ),
+      );
+      return;
+    }
 
     final pendingRecord = await _db.getPendingBestRecordByPlayerId(
       profile.playerId,
@@ -60,6 +89,7 @@ class ScoreRepository {
           playerName: pendingRecord.playerName,
           bestScore: pendingRecord.bestScore,
           playedAt: pendingRecord.playedAt,
+          secendtiem: defeatSeconds,
         ),
       );
     }
@@ -94,12 +124,16 @@ class ScoreRepository {
     if (!_canSyncNow) return;
 
     final pending = await _db.getPendingBestRecords();
+    final secendtiemByPlayer = await _db.getLatestSecendtiemByPlayerIds(
+      pending.map((record) => record.playerId).toList(),
+    );
     for (final record in pending) {
       final synced = await _pushBestScoreToFirebase(
         playerId: record.playerId,
         playerName: record.playerName,
         bestScore: record.bestScore,
         playedAt: record.playedAt,
+        secendtiem: secendtiemByPlayer[record.playerId],
       );
       if (synced) {
         await _db.markPlayerSynced(record.playerId);
@@ -115,8 +149,8 @@ class ScoreRepository {
         final snapshot =
             await _firestore!
                 .collection('leaderboard')
-                .orderBy('bestScore', descending: true)
-                .limit(10)
+                .orderBy('secendtiem', descending: true)
+                .limit(100)
                 .get();
 
         final byPlayerId = <String, LeaderboardEntry>{};
@@ -135,18 +169,52 @@ class ScoreRepository {
             playerName: data['playerName']?.toString() ?? 'Người chơi',
             bestScore: bestScore,
             playedAt: playedAt,
+            playedDurationSeconds:
+                (data['secendtiem'] as num?)?.toInt() ??
+                (data['playedDurationSeconds'] as num?)?.toInt(),
           );
 
           final existing = byPlayerId[entry.playerId];
-          if (existing == null || entry.bestScore > existing.bestScore) {
+          final existingDuration = existing?.playedDurationSeconds ?? 0;
+          final entryDuration = entry.playedDurationSeconds ?? 0;
+          if (existing == null ||
+              entryDuration > existingDuration ||
+              (entryDuration == existingDuration &&
+                  entry.bestScore > existing.bestScore)) {
             byPlayerId[entry.playerId] = entry;
           }
         }
 
         final deduplicated =
-            byPlayerId.values.toList()
-              ..sort((a, b) => b.bestScore.compareTo(a.bestScore));
-        return deduplicated.take(10).toList();
+            byPlayerId.values.toList()..sort((a, b) {
+              final durationCompare = (b.playedDurationSeconds ?? 0).compareTo(
+                a.playedDurationSeconds ?? 0,
+              );
+              if (durationCompare != 0) return durationCompare;
+
+              final scoreCompare = b.bestScore.compareTo(a.bestScore);
+              if (scoreCompare != 0) return scoreCompare;
+
+              return a.playedAt.compareTo(b.playedAt);
+            });
+        final topList = deduplicated.take(10).toList();
+        final durationByPlayer = await _db.getLatestSecendtiemByPlayerIds(
+          topList.map((entry) => entry.playerId).toList(),
+        );
+
+        return topList
+            .map(
+              (entry) => LeaderboardEntry(
+                playerId: entry.playerId,
+                playerName: entry.playerName,
+                bestScore: entry.bestScore,
+                playedAt: entry.playedAt,
+                playedDurationSeconds:
+                    durationByPlayer[entry.playerId] ??
+                    entry.playedDurationSeconds,
+              ),
+            )
+            .toList();
       } catch (error) {
         debugPrint('[ScoreRepository] getTop10 remote error: $error');
         // fallback local
@@ -154,6 +222,11 @@ class ScoreRepository {
     }
 
     return _db.getTop10LocalLeaderboard();
+  }
+
+  Future<int> getPlayerBestScore(String playerId) async {
+    final record = await _db.getPlayerBestRecordByPlayerId(playerId);
+    return record?.bestScore ?? 0;
   }
 
   Future<bool> isPlayerNameTaken({
@@ -206,12 +279,14 @@ class ScoreRepository {
     required String playerName,
     required int bestScore,
     required DateTime playedAt,
+    int? secendtiem,
   }) async {
     final synced = await _pushBestScoreToFirebase(
       playerId: playerId,
       playerName: playerName,
       bestScore: bestScore,
       playedAt: playedAt,
+      secendtiem: secendtiem,
     ).timeout(const Duration(seconds: 3), onTimeout: () => false);
 
     if (synced) {
@@ -224,6 +299,7 @@ class ScoreRepository {
     required String playerName,
     required int bestScore,
     required DateTime playedAt,
+    int? secendtiem,
   }) async {
     if (!_canUseFirebase) return false;
 
@@ -231,6 +307,10 @@ class ScoreRepository {
       final leaderboard = _firestore!.collection('leaderboard');
       final docRef = leaderboard.doc(playerId);
       var current = await docRef.get();
+
+      final localSecendtiem =
+          secendtiem ??
+          (await _db.getLatestSecendtiemByPlayerIds([playerId]))[playerId];
 
       if (!current.exists) {
         final samePlayerSnapshot =
@@ -253,6 +333,7 @@ class ScoreRepository {
             'playerName': legacyData['playerName']?.toString() ?? playerName,
             'bestScore': legacyBest,
             'playedAt': legacyPlayedAt,
+            if (localSecendtiem != null) 'secendtiem': localSecendtiem,
             'updatedAt': FieldValue.serverTimestamp(),
           });
 
@@ -264,24 +345,36 @@ class ScoreRepository {
         final data = current.data()!;
         final remoteBest = (data['bestScore'] as num?)?.toInt() ?? 0;
         final remoteName = data['playerName']?.toString().trim() ?? '';
-        if (remoteBest >= bestScore) {
-          if (remoteName != playerName.trim()) {
-            final remotePlayedAtRaw = data['playedAt'];
-            final remotePlayedAt =
-                remotePlayedAtRaw is Timestamp
-                    ? remotePlayedAtRaw
-                    : Timestamp.fromDate(DateTime.now());
+        final remoteSecendtiem = (data['secendtiem'] as num?)?.toInt() ?? 0;
+        final localDuration = localSecendtiem ?? 0;
+        final shouldPromoteDuration = localDuration > remoteSecendtiem;
+        final shouldPromoteScore = bestScore > remoteBest;
+        final shouldUpdateName = remoteName != playerName.trim();
 
-            await docRef.set({
-              'playerId': playerId,
-              'playerName': playerName,
-              'bestScore': remoteBest,
-              'playedAt': remotePlayedAt,
-              'updatedAt': FieldValue.serverTimestamp(),
-            });
-          }
+        if (!shouldPromoteDuration &&
+            !shouldPromoteScore &&
+            !shouldUpdateName) {
           return true;
         }
+
+        final remotePlayedAtRaw = data['playedAt'];
+        final remotePlayedAt =
+            remotePlayedAtRaw is Timestamp
+                ? remotePlayedAtRaw
+                : Timestamp.fromDate(DateTime.now());
+
+        await docRef.set({
+          'playerId': playerId,
+          'playerName': playerName,
+          'bestScore': shouldPromoteScore ? bestScore : remoteBest,
+          'playedAt':
+              shouldPromoteDuration
+                  ? Timestamp.fromDate(playedAt)
+                  : remotePlayedAt,
+          'secendtiem': max(remoteSecendtiem, localDuration),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        return true;
       }
 
       await docRef.set({
@@ -289,6 +382,7 @@ class ScoreRepository {
         'playerName': playerName,
         'bestScore': bestScore,
         'playedAt': Timestamp.fromDate(playedAt),
+        'secendtiem': localSecendtiem ?? 0,
         'updatedAt': FieldValue.serverTimestamp(),
       });
 

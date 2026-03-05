@@ -29,6 +29,18 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     return '${twoDigits(dt.day)}/${twoDigits(dt.month)} ${twoDigits(dt.hour)}:${twoDigits(dt.minute)}';
   }
 
+  String _formatDurationCompact(int seconds) {
+    final safe = seconds < 0 ? 0 : seconds;
+    final hours = safe ~/ 3600;
+    final minutes = (safe % 3600) ~/ 60;
+    final remainSeconds = safe % 60;
+    final secondText = remainSeconds.toString().padLeft(2, '0');
+    if (hours > 0) {
+      return '${hours}h${minutes.toString().padLeft(2, '0')}\'$secondText';
+    }
+    return '$minutes\'$secondText';
+  }
+
   Color _rankAccentColor(int rank) {
     switch (rank) {
       case 1:
@@ -70,9 +82,55 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Bảng xếp hạng'),
-            backgroundColor: const Color(0xFF1976D2),
+            toolbarHeight: 76,
+            elevation: 0,
             foregroundColor: Colors.white,
+            flexibleSpace: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF0D47A1), Color(0xFF1976D2)],
+                ),
+              ),
+            ),
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(18)),
+            ),
+            title: ValueListenableBuilder<bool>(
+              valueListenable: InternetStatusService.instance.hasInternet,
+              builder: (context, hasInternet, _) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text(
+                      'Bảng xếp hạng',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      hasInternet
+                          ? 'Đang đồng bộ dữ liệu trực tuyến'
+                          : 'Đang xem dữ liệu ngoại tuyến',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFFE3F2FD),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+            actions: [
+              IconButton(
+                tooltip: 'Làm mới',
+                onPressed: () => setState(() {}),
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+              const SizedBox(width: 4),
+            ],
           ),
           body: ValueListenableBuilder<bool>(
             valueListenable: InternetStatusService.instance.hasInternet,
@@ -151,6 +209,12 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                               final isMe = item.playerId == currentPlayerId;
                               final accentColor = _rankAccentColor(rank);
                               final rankPrefix = _rankPrefix(rank);
+                              final playedDurationText =
+                                  item.playedDurationSeconds != null
+                                      ? _formatDurationCompact(
+                                        item.playedDurationSeconds!,
+                                      )
+                                      : '--\'--';
 
                               return Container(
                                 padding: const EdgeInsets.symmetric(
@@ -285,16 +349,43 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                                         ],
                                       ),
                                     ),
-                                    Text(
-                                      '${item.bestScore}',
-                                      style: TextStyle(
-                                        fontSize: 24,
-                                        color:
-                                            isTop3
-                                                ? accentColor
-                                                : const Color(0xFF2E7D32),
-                                        fontWeight: FontWeight.w900,
-                                      ),
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: accentColor.withValues(
+                                              alpha: 0.12,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            playedDurationText,
+                                            style: TextStyle(
+                                              fontSize: 18,
+                                              color: accentColor,
+                                              fontWeight: FontWeight.w900,
+                                              letterSpacing: 0.3,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '${item.bestScore}',
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            color: Color(0xFF546E7A),
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),

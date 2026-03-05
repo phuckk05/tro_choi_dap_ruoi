@@ -4,17 +4,34 @@ import 'package:flutter/material.dart';
 class GameOverScreen extends StatelessWidget {
   final int score;
   final int highScore;
+  final bool isNewRecord;
+  final int? defeatSeconds;
+  final int? flyCountAtDefeat;
 
   const GameOverScreen({
     super.key,
     required this.score,
     required this.highScore,
+    required this.isNewRecord,
+    this.defeatSeconds,
+    this.flyCountAtDefeat,
   });
+
+  String _formatDurationFromSeconds(int seconds) {
+    final clamped = seconds < 0 ? 0 : seconds;
+    final hours = clamped ~/ 3600;
+    final minutes = (clamped % 3600) ~/ 60;
+    final remainSeconds = clamped % 60;
+    final secondText = remainSeconds.toString().padLeft(2, '0');
+
+    if (hours > 0) {
+      return '${hours}h${minutes.toString().padLeft(2, '0')}\'$secondText';
+    }
+    return '$minutes\'$secondText';
+  }
 
   @override
   Widget build(BuildContext context) {
-    final bool isNewRecord = score >= highScore && score > 0;
-
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -131,6 +148,30 @@ class GameOverScreen extends StatelessWidget {
                                 ),
                               ),
                             ),
+                            if (defeatSeconds != null) ...[
+                              const SizedBox(height: 10),
+                              Text(
+                                'Thời gian: ${_formatDurationFromSeconds(defeatSeconds!)}',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF37474F),
+                                ),
+                              ),
+                            ],
+                            if (flyCountAtDefeat != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'Ruồi: $flyCountAtDefeat con',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF607D8B),
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),

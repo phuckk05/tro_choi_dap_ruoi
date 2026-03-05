@@ -4,11 +4,13 @@ class LeaderboardEntry {
   final String playerName;
   final int bestScore;
   final DateTime playedAt;
+  final int? playedDurationSeconds;
 
   const LeaderboardEntry({
     required this.playerId,
     required this.playerName,
     required this.bestScore,
     required this.playedAt,
+    this.playedDurationSeconds,
   });
 }

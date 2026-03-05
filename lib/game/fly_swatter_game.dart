@@ -16,18 +16,23 @@ import '../services/score_repository.dart';
 /// (spawn/update/render) dễ theo dõi trong quá trình bảo trì.
 class FlySwatterGame extends FlameGame with HasCollisionDetection {
   final PlayerProfile playerProfile;
+  final int startingBestScore;
 
   int score = 0;
-  static int highScore = 0;
+  late int highScore;
   int combo = 0;
-  double gameTime = 60.0;
   double normalSpawnTimer = 0;
   double elapsedTime = 0;
   final Random random = Random();
   bool gameOver = false;
   bool _initialized = false;
-  int _lastShownSecond = 60;
+  int _lastShownSecond = -1;
   int _comboResetVersion = 0;
+  bool _endingTriggered = false;
+  int _noodleDropHits = 0;
+  bool _defeatStatsCaptured = false;
+  int _defeatSeconds = 0;
+  int _defeatFlyCount = 0;
   final List<_PendingCollisionSpawn> _pendingCollisionSpawns = [];
   final Set<int> _lockedFlyIds = <int>{};
   int _edgeSpawnCursor = 0;
@@ -39,6 +44,7 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
   ];
   static const int _maxChildFlies = 100;
   static const int _maxTotalFlies = 240;
+  static const int _maxNoodleDrops = 100;
 
   int get _activeChildFlyCount =>
       children
@@ -47,8 +53,14 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
           .length;
 
   late ScoreCard scoreCard;
+  late NoodleBowl noodleBowl;
 
-  FlySwatterGame({required this.playerProfile});
+  FlySwatterGame({
+    required this.playerProfile,
+    required this.startingBestScore,
+  }) {
+    highScore = startingBestScore;
+  }
 
   @override
   Color backgroundColor() => const Color(0x00000000);
@@ -67,6 +79,9 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
   void onGameResize(Vector2 size) {
     super.onGameResize(size);
     _ensureInitialized();
+    if (_initialized && noodleBowl.parent != null) {
+      _updateNoodleBowlPosition();
+    }
   }
 
   void _ensureInitialized() {
@@ -95,6 +110,18 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
     for (int i = 0; i < 10; i++) {
       add(Bush(position: Vector2(random.nextDouble() * size.x, size.y - 80)));
     }
+
+    noodleBowl = NoodleBowl(position: Vector2.zero());
+    add(noodleBowl);
+    _updateNoodleBowlPosition();
+    noodleBowl.setContaminationProgress(100);
+  }
+
+  void _updateNoodleBowlPosition() {
+    noodleBowl.position = Vector2(
+      (size.x - noodleBowl.size.x) / 2,
+      size.y - noodleBowl.size.y - 10,
+    );
   }
 
   @override
@@ -105,16 +132,9 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
 
     if (gameOver) return;
 
-    gameTime -= dt;
     elapsedTime += dt;
-    if (gameTime <= 0) {
-      gameTime = 0;
-      gameOver = true;
-      _endGame();
-      return;
-    }
 
-    final currentSecond = gameTime.ceil();
+    final currentSecond = elapsedTime.floor();
     if (currentSecond != _lastShownSecond) {
       _lastShownSecond = currentSecond;
       scoreCard.updateTime(currentSecond);
@@ -375,7 +395,46 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
     }
   }
 
+  void spawnFlyDropping(Vector2 fromPosition) {
+    if (gameOver) return;
+    add(FlyDropping(position: fromPosition, game: this));
+  }
+
+  bool isPointInsideNoodleBowl(Vector2 worldPoint) {
+    if (!_initialized || noodleBowl.parent == null) return false;
+    return noodleBowl.containsWorldPoint(worldPoint);
+  }
+
+  void onNoodleBowlContaminated() {
+    if (gameOver) return;
+
+    _noodleDropHits = (_noodleDropHits + 1).clamp(0, _maxNoodleDrops);
+    final cleanPercent = 100 - ((_noodleDropHits / _maxNoodleDrops) * 100);
+    noodleBowl.setContaminationProgress(cleanPercent);
+
+    if (_noodleDropHits >= _maxNoodleDrops) {
+      _captureDefeatStats();
+      gameOver = true;
+      scoreCard.updateTime(_defeatSeconds);
+      _endGame();
+    }
+  }
+
+  void _captureDefeatStats() {
+    if (_defeatStatsCaptured) return;
+    _defeatStatsCaptured = true;
+
+    _defeatSeconds = max(0, elapsedTime.floor());
+    _defeatFlyCount =
+        children.whereType<Fly>().where((fly) => !fly.isSwatted).length;
+  }
+
   void _endGame() {
+    if (_endingTriggered) return;
+    _endingTriggered = true;
+
+    _captureDefeatStats();
+
     Future.delayed(const Duration(milliseconds: 500), () {
       final context = buildContext;
       if (context != null && context.mounted) {
@@ -383,12 +442,20 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
           playerProfile,
           score,
           DateTime.now(),
+          defeatSeconds: _defeatSeconds,
+          flyCountAtDefeat: _defeatFlyCount,
         );
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder:
-                (context) => GameOverScreen(score: score, highScore: highScore),
+                (context) => GameOverScreen(
+                  score: score,
+                  highScore: highScore,
+                  isNewRecord: score > startingBestScore,
+                  defeatSeconds: _defeatSeconds,
+                  flyCountAtDefeat: _defeatFlyCount,
+                ),
           ),
         );
       }
@@ -413,6 +480,8 @@ class Fly extends PositionComponent with TapCallbacks {
   bool isSwatted = false;
   bool _collisionLocked = false;
   double _reproduceCooldown = 0;
+  double _dropTimer = 0;
+  double _nextDropInterval = 3.0;
 
   double wingAngle = 0;
   double animationTime = 0;
@@ -503,6 +572,23 @@ class Fly extends PositionComponent with TapCallbacks {
     } else {
       _changeDirection();
     }
+    _scheduleNextDrop(initial: true);
+  }
+
+  void _scheduleNextDrop({bool initial = false}) {
+    _nextDropInterval = 2.6 + random.nextDouble() * 0.8;
+    _dropTimer = initial ? random.nextDouble() * 1.1 : 0;
+  }
+
+  void _updateDropTimer(double dt) {
+    if (game.gameOver) return;
+
+    _dropTimer += dt;
+    if (_dropTimer < _nextDropInterval) return;
+
+    final dropPosition = position + Vector2(0, flySize * 0.34);
+    game.spawnFlyDropping(dropPosition);
+    _scheduleNextDrop();
   }
 
   void _changeDirection() {
@@ -524,6 +610,8 @@ class Fly extends PositionComponent with TapCallbacks {
         _reproduceCooldown = 0;
       }
     }
+
+    _updateDropTimer(dt);
 
     if (_collisionLocked) {
       animationTime += dt * 12;
@@ -860,6 +948,202 @@ class Grass extends PositionComponent {
   }
 }
 
+class NoodleBowl extends PositionComponent {
+  static final Paint _shadowPaint =
+      Paint()
+        ..color = const Color(0x33000000)
+        ..style = PaintingStyle.fill;
+  static final Paint _rimPaint =
+      Paint()
+        ..shader = ui.Gradient.linear(
+          const Offset(0, -16),
+          const Offset(0, 16),
+          [const Color(0xFFFDFDFD), const Color(0xFFD9E0E6)],
+        )
+        ..style = PaintingStyle.fill;
+  static final Paint _outerPaint =
+      Paint()
+        ..shader = ui.Gradient.linear(
+          const Offset(0, -20),
+          const Offset(0, 26),
+          [const Color(0xFFD84315), const Color(0xFFBF360C)],
+        )
+        ..style = PaintingStyle.fill;
+  static final Paint _highlightPaint =
+      Paint()
+        ..color = const Color(0x66FFFFFF)
+        ..style = PaintingStyle.fill;
+  static final Paint _innerSoupPaint =
+      Paint()
+        ..shader = ui.Gradient.linear(
+          const Offset(0, -18),
+          const Offset(0, 10),
+          [const Color(0xFFFFD180), const Color(0xFFFFA726)],
+        )
+        ..style = PaintingStyle.fill;
+  static final Paint _noodlePaint =
+      Paint()
+        ..color = const Color(0xFFFFF59D)
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round
+        ..style = PaintingStyle.stroke;
+  static final Paint _steamPaint =
+      Paint()
+        ..color = const Color(0x88FFFFFF)
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round
+        ..style = PaintingStyle.stroke;
+  double _steamTime = 0;
+  double _contaminationPercent = 0;
+  late TextPainter _percentPainter;
+
+  NoodleBowl({required super.position})
+    : super(size: Vector2(190, 80), anchor: Anchor.topLeft, priority: -3) {
+    _percentPainter = TextPainter(
+      textDirection: TextDirection.ltr,
+      textAlign: TextAlign.center,
+    );
+  }
+
+  void setContaminationProgress(double percent) {
+    _contaminationPercent = percent.clamp(0, 100);
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    _steamTime += dt;
+  }
+
+  bool containsWorldPoint(Vector2 worldPoint) {
+    final local = (worldPoint - position) - Vector2(size.x / 2, size.y);
+    final bowlTop = -70.0;
+    return local.x >= -72 &&
+        local.x <= 72 &&
+        local.y >= bowlTop &&
+        local.y <= -28;
+  }
+
+  @override
+  void render(Canvas canvas) {
+    canvas.save();
+    canvas.translate(size.x / 2, size.y);
+    canvas.translate(0, -54);
+
+    canvas.drawOval(
+      Rect.fromCenter(center: const Offset(0, 29), width: 174, height: 24),
+      _shadowPaint,
+    );
+
+    for (int i = 0; i < 4; i++) {
+      final baseX = -45.0 + (i * 30.0);
+      final lift = sin(_steamTime * 1.8 + i) * 5;
+      final steamPath =
+          Path()
+            ..moveTo(baseX, -14)
+            ..cubicTo(
+              baseX - 8,
+              -30 + lift,
+              baseX + 8,
+              -50 + lift,
+              baseX - 2,
+              -68 + lift,
+            );
+      canvas.drawPath(steamPath, _steamPaint);
+    }
+
+    final outerRect = Rect.fromCenter(
+      center: const Offset(0, 12),
+      width: 168,
+      height: 58,
+    );
+    final rimRect = Rect.fromCenter(
+      center: const Offset(0, -2),
+      width: 148,
+      height: 32,
+    );
+
+    canvas.drawOval(outerRect, _outerPaint);
+    canvas.drawOval(
+      Rect.fromCenter(center: const Offset(0, 4), width: 124, height: 16),
+      _highlightPaint,
+    );
+    canvas.drawOval(rimRect, _rimPaint);
+    canvas.drawOval(
+      Rect.fromCenter(center: const Offset(0, -2), width: 132, height: 23),
+      _innerSoupPaint,
+    );
+
+    for (int i = -3; i <= 3; i++) {
+      final baseX = i * 17.0;
+      final path =
+          Path()
+            ..moveTo(baseX - 12, -2)
+            ..quadraticBezierTo(baseX - 5, -8, baseX + 2, -2)
+            ..quadraticBezierTo(baseX + 9, 4, baseX + 14, -1);
+      canvas.drawPath(path, _noodlePaint);
+    }
+
+    final percentText = 'Mỳ sạch: ${_contaminationPercent.round()}%';
+    _percentPainter.text = TextSpan(
+      text: percentText,
+      style: const TextStyle(
+        color: Color(0xFF1B1F23),
+        fontSize: 14,
+        fontWeight: FontWeight.w900,
+        shadows: [
+          Shadow(color: Color(0x55FFFFFF), blurRadius: 3, offset: Offset(0, 1)),
+        ],
+      ),
+    );
+    _percentPainter.layout();
+    _percentPainter.paint(canvas, Offset(-_percentPainter.width / 2, 38));
+
+    canvas.restore();
+  }
+}
+
+class FlyDropping extends PositionComponent {
+  final FlySwatterGame game;
+  Vector2 velocity = Vector2(0, 30);
+
+  static final Paint _dropPaint =
+      Paint()
+        ..color = const Color(0xFF5D4037)
+        ..style = PaintingStyle.fill;
+
+  FlyDropping({required super.position, required this.game})
+    : super(size: Vector2.all(6), anchor: Anchor.center, priority: 1);
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+
+    velocity.y += 520 * dt;
+    position += velocity * dt;
+
+    if (game.isPointInsideNoodleBowl(position)) {
+      removeFromParent();
+      game.onNoodleBowlContaminated();
+      return;
+    }
+
+    if (position.y > game.size.y + 30 ||
+        position.x < -30 ||
+        position.x > game.size.x + 30) {
+      removeFromParent();
+    }
+  }
+
+  @override
+  void render(Canvas canvas) {
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset.zero, width: 5, height: 7),
+      _dropPaint,
+    );
+  }
+}
+
 class Particle extends PositionComponent {
   Vector2 velocity;
   double life = 1.0;
@@ -964,7 +1248,7 @@ class ScoreCard extends PositionComponent {
           ..strokeWidth = 2;
 
     timeText = TextComponent(
-      text: '⏱️ 60',
+      text: '⏱️ 0',
       position: Vector2(8, 14),
       anchor: Anchor.centerLeft,
       textRenderer: _timeNormalPaint,
@@ -1025,9 +1309,9 @@ class ScoreCard extends PositionComponent {
     timeText.text = '⏱️ $seconds';
 
     final nextLevel =
-        seconds <= 10
+        seconds >= 50
             ? 2
-            : seconds <= 30
+            : seconds >= 30
             ? 1
             : 0;
     if (nextLevel != _timeLevel) {

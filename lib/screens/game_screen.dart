@@ -15,12 +15,20 @@ class GameScreen extends StatefulWidget {
 }
 
 class _GameScreenState extends State<GameScreen> {
-  late final Future<PlayerProfile> _profileFuture;
+  late final Future<_GameBootstrapData> _bootstrapFuture;
 
   @override
   void initState() {
     super.initState();
-    _profileFuture = PlayerProfileService.instance.ensureProfile();
+    _bootstrapFuture = _loadBootstrapData();
+  }
+
+  Future<_GameBootstrapData> _loadBootstrapData() async {
+    final profile = await PlayerProfileService.instance.ensureProfile();
+    final bestScore = await ScoreRepository.instance.getPlayerBestScore(
+      profile.playerId,
+    );
+    return _GameBootstrapData(profile: profile, startingBestScore: bestScore);
   }
 
   Future<void> _showExitDialog(
@@ -131,14 +139,15 @@ class _GameScreenState extends State<GameScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: FutureBuilder<PlayerProfile>(
-        future: _profileFuture,
+      body: FutureBuilder<_GameBootstrapData>(
+        future: _bootstrapFuture,
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final profile = snapshot.data!;
+          final bootstrapData = snapshot.data!;
+          final profile = bootstrapData.profile;
 
           return Stack(
             children: [
@@ -158,7 +167,10 @@ class _GameScreenState extends State<GameScreen> {
                 ),
                 child: SafeArea(
                   child: GameWidget(
-                    game: FlySwatterGame(playerProfile: profile),
+                    game: FlySwatterGame(
+                      playerProfile: profile,
+                      startingBestScore: bootstrapData.startingBestScore,
+                    ),
                   ),
                 ),
               ),
@@ -185,4 +197,14 @@ class _GameScreenState extends State<GameScreen> {
       ),
     );
   }
+}
+
+class _GameBootstrapData {
+  final PlayerProfile profile;
+  final int startingBestScore;
+
+  const _GameBootstrapData({
+    required this.profile,
+    required this.startingBestScore,
+  });
 }

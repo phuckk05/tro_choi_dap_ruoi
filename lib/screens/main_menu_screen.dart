@@ -14,31 +14,53 @@ class MainMenuScreen extends StatefulWidget {
   State<MainMenuScreen> createState() => _MainMenuScreenState();
 }
 
-class _MainMenuScreenState extends State<MainMenuScreen>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _swatController;
+class _MainMenuScreenState extends State<MainMenuScreen> {
   final TextEditingController _nameController = TextEditingController();
 
   bool _loadingProfile = true;
+  int _currentRecord = 0;
+  int? _currentRecordSeconds;
 
   @override
   void initState() {
     super.initState();
-    _swatController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1300),
-    )..repeat();
-
     _initProfile();
   }
 
   Future<void> _initProfile() async {
     final profile = await PlayerProfileService.instance.ensureProfile();
+    int best = 0;
+    int? bestSeconds;
+    try {
+      final topEntries = await ScoreRepository.instance.getTop10Leaderboard(
+        preferRemote: InternetStatusService.instance.hasInternet.value,
+      );
+      if (topEntries.isNotEmpty) {
+        best = topEntries.first.bestScore;
+        bestSeconds = topEntries.first.playedDurationSeconds;
+      }
+    } catch (_) {}
+
     if (!mounted) return;
     setState(() {
       _setNameField(profile.playerName);
+      _currentRecord = best;
+      _currentRecordSeconds = bestSeconds;
       _loadingProfile = false;
     });
+  }
+
+  String _formatDurationCompact(int? seconds) {
+    if (seconds == null) return '--:--';
+    final safe = seconds < 0 ? 0 : seconds;
+    final hours = safe ~/ 3600;
+    final minutes = (safe % 3600) ~/ 60;
+    final remainSeconds = safe % 60;
+    final secondText = remainSeconds.toString().padLeft(2, '0');
+    if (hours > 0) {
+      return '${hours}h${minutes.toString().padLeft(2, '0')}\'$secondText';
+    }
+    return '$minutes\'$secondText';
   }
 
   void _setNameField(String value) {
@@ -88,7 +110,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
   @override
   void dispose() {
-    _swatController.dispose();
     _nameController.dispose();
     super.dispose();
   }
@@ -96,280 +117,126 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF6AA9E9),
-              Color(0xFF8CC7F0),
-              Color(0xFFBCE6F8),
-              Color(0xFFEFFBFF),
-            ],
-            stops: [0.0, 0.32, 0.72, 1.0],
-          ),
-        ),
-        child: Stack(
-          children: [
-            const Positioned.fill(
-              child: IgnorePointer(
-                child: CustomPaint(painter: _DepthGridPainter()),
-              ),
-            ),
-            Positioned(
-              top: -80,
-              right: -70,
-              child: Container(
-                width: 250,
-                height: 250,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.25),
-                  shape: BoxShape.circle,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
                 ),
-              ),
-            ),
-            Positioned(
-              left: -90,
-              bottom: 44,
-              child: Container(
-                width: 280,
-                height: 280,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFD54F).withValues(alpha: 0.18),
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ),
-            Positioned(
-              right: -50,
-              bottom: -80,
-              child: Container(
-                width: 240,
-                height: 240,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF4FC3F7).withValues(alpha: 0.16),
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ),
-            SafeArea(
-              child: Center(
-                child: SingleChildScrollView(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 20,
-                    ),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 540),
-                      child: Transform(
-                        alignment: Alignment.center,
-                        transform:
-                            Matrix4.identity()
-                              ..setEntry(3, 2, 0.0012)
-                              ..rotateX(0.02),
-                        child: Container(
-                          padding: const EdgeInsets.fromLTRB(24, 28, 24, 22),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [
-                                Colors.white.withValues(alpha: 0.98),
-                                Colors.white.withValues(alpha: 0.90),
-                              ],
-                            ),
-                            borderRadius: BorderRadius.circular(28),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(
-                                  0xFF0D47A1,
-                                ).withValues(alpha: 0.16),
-                                blurRadius: 36,
-                                spreadRadius: 2,
-                                offset: const Offset(0, 16),
-                              ),
-                              BoxShadow(
-                                color: Colors.white.withValues(alpha: 0.35),
-                                blurRadius: 16,
-                                offset: const Offset(0, -2),
-                              ),
-                            ],
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.86),
-                              width: 1.5,
-                            ),
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _SwatAnimation(controller: _swatController),
-                              const SizedBox(height: 12),
-                              const Text(
-                                'ĐẬP RUỒI',
-                                style: TextStyle(
-                                  fontSize: 50,
-                                  fontWeight: FontWeight.w900,
-                                  color: Color(0xFF1B4965),
-                                  letterSpacing: 1.6,
-                                  height: 1,
-                                  shadows: [
-                                    Shadow(
-                                      color: Color(0x553FA9F5),
-                                      blurRadius: 12,
-                                      offset: Offset(0, 3),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              const Text(
-                                'Đập ruồi thật nhanh trong 60 giây và săn điểm cao nhất!',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Color(0xFF355C7D),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 14),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                alignment: WrapAlignment.center,
-                                children: const [
-                                  _InfoChip(label: 'Nhanh tay'),
-                                  _InfoChip(label: 'Chuẩn xác'),
-                                  _InfoChip(label: 'Săn kỷ lục'),
-                                ],
-                              ),
-                              const SizedBox(height: 14),
-                              TextField(
-                                controller: _nameController,
-                                enabled: !_loadingProfile,
-                                maxLength: 20,
-                                decoration: InputDecoration(
-                                  labelText: 'Tên người chơi',
-                                  counterText: '',
-                                  hintText: 'Nhập tên của bạn',
-                                  filled: true,
-                                  fillColor: Colors.white,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 22),
-                              SizedBox(
-                                width: double.infinity,
-                                child: ElevatedButton(
-                                  onPressed:
-                                      _loadingProfile ? null : _startGame,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF43A047),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 16,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                    elevation: 10,
-                                    shadowColor: const Color(
-                                      0xFF2E7D32,
-                                    ).withValues(alpha: 0.5),
-                                  ),
-                                  child: const Text(
-                                    '🎮 CHƠI NGAY',
-                                    style: TextStyle(
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: 1.1,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              ValueListenableBuilder<bool>(
-                                valueListenable:
-                                    InternetStatusService.instance.hasInternet,
-                                builder: (context, hasInternet, _) {
-                                  return Column(
-                                    children: [
-                                      SizedBox(
-                                        width: double.infinity,
-                                        child: OutlinedButton.icon(
-                                          onPressed:
-                                              hasInternet
-                                                  ? () {
-                                                    Navigator.pushNamed(
-                                                      context,
-                                                      '/leaderboard',
-                                                    );
-                                                  }
-                                                  : null,
-                                          icon: Icon(
-                                            hasInternet
-                                                ? Icons.leaderboard_rounded
-                                                : Icons.wifi_off_rounded,
-                                          ),
-                                          label: const Text(
-                                            'BẢNG XẾP HẠNG',
-                                            style: TextStyle(
-                                              fontSize: 18,
-                                              fontWeight: FontWeight.w800,
-                                              letterSpacing: 0.8,
-                                            ),
-                                          ),
-                                          style: OutlinedButton.styleFrom(
-                                            foregroundColor: const Color(
-                                              0xFF1565C0,
-                                            ),
-                                            side: const BorderSide(
-                                              color: Color(0xFF90CAF9),
-                                              width: 1.8,
-                                            ),
-                                            disabledForegroundColor:
-                                                const Color(0xFF90A4AE),
-                                            padding: const EdgeInsets.symmetric(
-                                              vertical: 14,
-                                            ),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(16),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        hasInternet
-                                            ? ''
-                                            : 'Mất internet, không thể mở bảng xếp hạng',
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          color:
-                                              hasInternet
-                                                  ? const Color(0xFF2E7D32)
-                                                  : const Color(0xFFb71c1c),
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ),
-                            ],
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        'ĐẬP RUỒI',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 34,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF2E4A35),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEAF4EA),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFB9D2B5)),
+                        ),
+                        child: Text(
+                          'Kỷ lục: $_currentRecord ruồi | Thời gian: ${_formatDurationCompact(_currentRecordSeconds)}',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF2F5D3A),
                           ),
                         ),
                       ),
-                    ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: _nameController,
+                        enabled: !_loadingProfile,
+                        maxLength: 20,
+                        decoration: InputDecoration(
+                          labelText: 'Tên người chơi',
+                          counterText: '',
+                          hintText: 'Nhập tên của bạn',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton(
+                        onPressed: _loadingProfile ? null : _startGame,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF4F6F52),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text(
+                          'Chơi',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      ValueListenableBuilder<bool>(
+                        valueListenable:
+                            InternetStatusService.instance.hasInternet,
+                        builder: (context, hasInternet, _) {
+                          return OutlinedButton.icon(
+                            onPressed:
+                                hasInternet
+                                    ? () => Navigator.pushNamed(
+                                      context,
+                                      '/leaderboard',
+                                    )
+                                    : null,
+                            icon: Icon(
+                              hasInternet
+                                  ? Icons.leaderboard_rounded
+                                  : Icons.wifi_off_rounded,
+                            ),
+                            label: Text(
+                              hasInternet
+                                  ? 'Bảng xếp hạng'
+                                  : 'Không có internet',
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF5A4A3C),
+                              side: const BorderSide(color: Color(0xFFCDBCA4)),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
-          ],
+          ),
         ),
       ),
     );

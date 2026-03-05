@@ -38,7 +38,7 @@ class LocalDbService {
 
     return openDatabase(
       path,
-      version: 1,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE players (
@@ -57,10 +57,28 @@ class LocalDbService {
             player_id TEXT NOT NULL,
             player_name TEXT NOT NULL,
             score INTEGER NOT NULL,
+            defeat_seconds INTEGER,
+            secendtiem INTEGER,
+            fly_count_at_defeat INTEGER,
             played_at TEXT NOT NULL,
             created_at TEXT NOT NULL
           )
         ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            'ALTER TABLE score_events ADD COLUMN defeat_seconds INTEGER',
+          );
+          await db.execute(
+            'ALTER TABLE score_events ADD COLUMN fly_count_at_defeat INTEGER',
+          );
+        }
+        if (oldVersion < 3) {
+          await db.execute(
+            'ALTER TABLE score_events ADD COLUMN secendtiem INTEGER',
+          );
+        }
       },
     );
   }
@@ -68,13 +86,19 @@ class LocalDbService {
   Future<void> insertScoreEvent(
     PlayerProfile profile,
     int score,
-    DateTime playedAt,
-  ) async {
+    DateTime playedAt, {
+    int? defeatSeconds,
+    int? secendtiem,
+    int? flyCountAtDefeat,
+  }) async {
     final db = await database;
     await db.insert('score_events', {
       'player_id': profile.playerId,
       'player_name': profile.playerName,
       'score': score,
+      'defeat_seconds': defeatSeconds,
+      'secendtiem': secendtiem,
+      'fly_count_at_defeat': flyCountAtDefeat,
       'played_at': playedAt.toIso8601String(),
       'created_at': DateTime.now().toIso8601String(),
     });
@@ -97,19 +121,33 @@ class LocalDbService {
 
     final nowIso = DateTime.now().toIso8601String();
 
+    Map<String, Object?> row;
     if (current.isEmpty) {
-      await db.insert('players', {
+      final inserted = await db.insert('players', {
         'player_id': profile.playerId,
         'player_name': profile.playerName,
         'best_score': score,
         'best_score_played_at': playedAt.toIso8601String(),
         'updated_at': nowIso,
         'needs_sync': 1,
-      });
-      return true;
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+      if (inserted > 0) {
+        return true;
+      }
+
+      final existing = await db.query(
+        'players',
+        where: 'player_id = ?',
+        whereArgs: [profile.playerId],
+        limit: 1,
+      );
+      if (existing.isEmpty) return false;
+      row = existing.first;
+    } else {
+      row = current.first;
     }
 
-    final row = current.first;
     final currentBest = (row['best_score'] as int?) ?? 0;
     final currentName = (row['player_name'] as String?) ?? '';
     final shouldUpdateBest = score > currentBest;
@@ -182,6 +220,32 @@ class LocalDbService {
     );
   }
 
+  Future<PendingBestRecord?> getPlayerBestRecordByPlayerId(
+    String playerId,
+  ) async {
+    final db = await database;
+    final rows = await db.query(
+      'players',
+      where: 'player_id = ?',
+      whereArgs: [playerId],
+      limit: 1,
+    );
+
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    final playedAtRaw = row['best_score_played_at'] as String?;
+
+    return PendingBestRecord(
+      playerId: row['player_id'] as String,
+      playerName: row['player_name'] as String,
+      bestScore: (row['best_score'] as int?) ?? 0,
+      playedAt:
+          playedAtRaw == null
+              ? DateTime.now()
+              : DateTime.tryParse(playedAtRaw) ?? DateTime.now(),
+    );
+  }
+
   Future<bool> isPlayerNameTaken({
     required String playerName,
     required String excludingPlayerId,
@@ -214,26 +278,77 @@ class LocalDbService {
     );
   }
 
+  Future<Map<String, int>> getLatestSecendtiemByPlayerIds(
+    List<String> playerIds,
+  ) async {
+    if (playerIds.isEmpty) return const {};
+
+    final db = await database;
+    final placeholders = List.filled(playerIds.length, '?').join(',');
+    final rows = await db.rawQuery('''
+      SELECT player_id, MAX(COALESCE(secendtiem, defeat_seconds, 0)) AS secendtiem
+      FROM score_events
+      WHERE player_id IN ($placeholders)
+      GROUP BY player_id
+      ''', playerIds);
+
+    final result = <String, int>{};
+    for (final row in rows) {
+      final playerId = row['player_id']?.toString();
+      if (playerId == null) continue;
+
+      final secendtiemRaw = row['secendtiem'];
+      final secendtiem =
+          secendtiemRaw is int
+              ? secendtiemRaw
+              : int.tryParse(secendtiemRaw?.toString() ?? '');
+      if (secendtiem == null) continue;
+
+      result[playerId] = secendtiem;
+    }
+
+    return result;
+  }
+
   Future<List<LeaderboardEntry>> getTop10LocalLeaderboard() async {
     final db = await database;
     final rows = await db.query(
       'players',
       where: 'best_score > 0',
-      orderBy: 'best_score DESC, updated_at ASC',
-      limit: 10,
+      orderBy: 'updated_at DESC',
     );
 
-    return rows.map((row) {
-      final playedAtRaw = row['best_score_played_at'] as String?;
-      return LeaderboardEntry(
-        playerId: row['player_id'] as String,
-        playerName: row['player_name'] as String,
-        bestScore: (row['best_score'] as int?) ?? 0,
-        playedAt:
-            playedAtRaw == null
-                ? DateTime.now()
-                : DateTime.tryParse(playedAtRaw) ?? DateTime.now(),
+    final playerIds = rows.map((row) => row['player_id'] as String).toList();
+    final durationByPlayer = await getLatestSecendtiemByPlayerIds(playerIds);
+
+    final entries =
+        rows.map((row) {
+          final playedAtRaw = row['best_score_played_at'] as String?;
+          final playerId = row['player_id'] as String;
+          return LeaderboardEntry(
+            playerId: playerId,
+            playerName: row['player_name'] as String,
+            bestScore: (row['best_score'] as int?) ?? 0,
+            playedAt:
+                playedAtRaw == null
+                    ? DateTime.now()
+                    : DateTime.tryParse(playedAtRaw) ?? DateTime.now(),
+            playedDurationSeconds: durationByPlayer[playerId],
+          );
+        }).toList();
+
+    entries.sort((a, b) {
+      final durationCompare = (b.playedDurationSeconds ?? 0).compareTo(
+        a.playedDurationSeconds ?? 0,
       );
-    }).toList();
+      if (durationCompare != 0) return durationCompare;
+
+      final scoreCompare = b.bestScore.compareTo(a.bestScore);
+      if (scoreCompare != 0) return scoreCompare;
+
+      return a.playedAt.compareTo(b.playedAt);
+    });
+
+    return entries.take(10).toList();
   }
 }
