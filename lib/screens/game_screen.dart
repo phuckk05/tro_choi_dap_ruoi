@@ -138,6 +138,7 @@ class _GameScreenState extends State<GameScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
     return Scaffold(
       body: FutureBuilder<_GameBootstrapData>(
         future: _bootstrapFuture,
@@ -149,49 +150,54 @@ class _GameScreenState extends State<GameScreen> {
           final bootstrapData = snapshot.data!;
           final profile = bootstrapData.profile;
 
-          return Stack(
-            children: [
-              Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Color(0xFFADD8E6),
-                      Color(0xFFE0F7FA),
-                      Color(0xFFFFF9C4),
-                      Color(0xFFFFFFE0),
-                    ],
-                    stops: [0.0, 0.3, 0.7, 1.0],
-                  ),
-                ),
-                child: SafeArea(
-                  child: GameWidget(
-                    game: FlySwatterGame(
-                      playerProfile: profile,
-                      startingBestScore: bootstrapData.startingBestScore,
+          return AnimatedPadding(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            padding: EdgeInsets.only(bottom: keyboardInset > 0 ? 12 : 0),
+            child: Stack(
+              children: [
+                Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Color(0xFFADD8E6),
+                        Color(0xFFE0F7FA),
+                        Color(0xFFFFF9C4),
+                        Color(0xFFFFFFE0),
+                      ],
+                      stops: [0.0, 0.3, 0.7, 1.0],
                     ),
                   ),
-                ),
-              ),
-              SafeArea(
-                child: Align(
-                  alignment: Alignment.topRight,
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 6, right: 6),
-                    child: IconButton(
-                      onPressed: () => _showExitDialog(context, profile),
-                      icon: const Icon(Icons.exit_to_app_rounded, size: 20),
-                      style: IconButton.styleFrom(
-                        backgroundColor: Colors.white.withValues(alpha: 0.94),
-                        foregroundColor: const Color(0xFF37474F),
-                        padding: const EdgeInsets.all(6),
+                  child: SafeArea(
+                    child: GameWidget(
+                      game: FlySwatterGame(
+                        playerProfile: profile,
+                        startingBestScore: bootstrapData.startingBestScore,
                       ),
                     ),
                   ),
                 ),
-              ),
-            ],
+                SafeArea(
+                  child: Align(
+                    alignment: Alignment.topRight,
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 6, right: 6),
+                      child: IconButton(
+                        onPressed: () => _showExitDialog(context, profile),
+                        icon: const Icon(Icons.exit_to_app_rounded, size: 20),
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.white.withValues(alpha: 0.94),
+                          foregroundColor: const Color(0xFF37474F),
+                          padding: const EdgeInsets.all(6),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           );
         },
       ),

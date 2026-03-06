@@ -32,12 +32,12 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
     int best = 0;
     int? bestSeconds;
     try {
-      final topEntries = await ScoreRepository.instance.getTop10Leaderboard(
-        preferRemote: InternetStatusService.instance.hasInternet.value,
+      final myBest = await ScoreRepository.instance.getPlayerBestRecord(
+        profile.playerId,
       );
-      if (topEntries.isNotEmpty) {
-        best = topEntries.first.bestScore;
-        bestSeconds = topEntries.first.playedDurationSeconds;
+      if (myBest != null) {
+        best = myBest.bestScore;
+        bestSeconds = myBest.playedDurationSeconds;
       }
     } catch (_) {}
 
@@ -116,122 +116,132 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
     return Scaffold(
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Card(
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Text(
-                        'ĐẬP RUỒI',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 34,
-                          fontWeight: FontWeight.w900,
-                          color: Color(0xFF2E4A35),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEAF4EA),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFFB9D2B5)),
-                        ),
-                        child: Text(
-                          'Kỷ lục: $_currentRecord ruồi | Thời gian: ${_formatDurationCompact(_currentRecordSeconds)}',
+        child: AnimatedPadding(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          padding: EdgeInsets.only(bottom: keyboardInset > 0 ? 16 : 0),
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Text(
+                          'ĐẬP RUỒI',
                           textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF2F5D3A),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      TextField(
-                        controller: _nameController,
-                        enabled: !_loadingProfile,
-                        maxLength: 20,
-                        decoration: InputDecoration(
-                          labelText: 'Tên người chơi',
-                          counterText: '',
-                          hintText: 'Nhập tên của bạn',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      ElevatedButton(
-                        onPressed: _loadingProfile ? null : _startGame,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF4F6F52),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        child: const Text(
-                          'Chơi',
                           style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
+                            fontSize: 34,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF2E4A35),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      ValueListenableBuilder<bool>(
-                        valueListenable:
-                            InternetStatusService.instance.hasInternet,
-                        builder: (context, hasInternet, _) {
-                          return OutlinedButton.icon(
-                            onPressed:
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEAF4EA),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFB9D2B5)),
+                          ),
+                          child: Text(
+                            'Kỷ lục: $_currentRecord ruồi | Thời gian: ${_formatDurationCompact(_currentRecordSeconds)}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF2F5D3A),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: _nameController,
+                          enabled: !_loadingProfile,
+                          maxLength: 20,
+                          decoration: InputDecoration(
+                            labelText: 'Tên người chơi',
+                            counterText: '',
+                            hintText: 'Nhập tên của bạn',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        ElevatedButton(
+                          onPressed: _loadingProfile ? null : _startGame,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF4F6F52),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: const Text(
+                            'Chơi',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        ValueListenableBuilder<bool>(
+                          valueListenable:
+                              InternetStatusService.instance.hasInternet,
+                          builder: (context, hasInternet, _) {
+                            return OutlinedButton.icon(
+                              onPressed:
+                                  hasInternet
+                                      ? () => Navigator.pushNamed(
+                                        context,
+                                        '/leaderboard',
+                                      )
+                                      : null,
+                              icon: Icon(
                                 hasInternet
-                                    ? () => Navigator.pushNamed(
-                                      context,
-                                      '/leaderboard',
-                                    )
-                                    : null,
-                            icon: Icon(
-                              hasInternet
-                                  ? Icons.leaderboard_rounded
-                                  : Icons.wifi_off_rounded,
-                            ),
-                            label: Text(
-                              hasInternet
-                                  ? 'Bảng xếp hạng'
-                                  : 'Không có internet',
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF5A4A3C),
-                              side: const BorderSide(color: Color(0xFFCDBCA4)),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
+                                    ? Icons.leaderboard_rounded
+                                    : Icons.wifi_off_rounded,
                               ),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
+                              label: Text(
+                                hasInternet
+                                    ? 'Bảng xếp hạng'
+                                    : 'Không có internet',
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF5A4A3C),
+                                side: const BorderSide(
+                                  color: Color(0xFFCDBCA4),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -243,6 +253,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
   }
 }
 
+// ignore: unused_element
 class _DepthGridPainter extends CustomPainter {
   const _DepthGridPainter();
 
@@ -292,6 +303,7 @@ class _DepthGridPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
+// ignore: unused_element
 class _SwatAnimation extends StatelessWidget {
   final AnimationController controller;
 
@@ -461,6 +473,7 @@ class _MenuFlyPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
+// ignore: unused_element
 class _InfoChip extends StatelessWidget {
   final String label;
 

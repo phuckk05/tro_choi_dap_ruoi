@@ -16,6 +16,25 @@ class LeaderboardScreen extends StatefulWidget {
 class _LeaderboardScreenState extends State<LeaderboardScreen> {
   late final Future<String> _currentPlayerIdFuture;
 
+  Future<List<Object?>> _loadLeaderboardBundle({
+    required bool hasInternet,
+    required String playerId,
+    required String playerName,
+  }) async {
+    if (hasInternet) {
+      await ScoreRepository.instance.syncPendingBestScores();
+    }
+
+    return Future.wait<Object?>([
+      ScoreRepository.instance.getTop10Leaderboard(preferRemote: hasInternet),
+      ScoreRepository.instance.getPlayerLeaderboardRank(
+        playerId: playerId,
+        preferRemote: hasInternet,
+        playerName: playerName,
+      ),
+    ]);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -67,6 +86,154 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     }
   }
 
+  Widget _buildLeaderboardTile({
+    required LeaderboardEntry item,
+    required int rank,
+    required bool isMe,
+  }) {
+    final isTop3 = rank <= 3;
+    final accentColor = _rankAccentColor(rank);
+    final rankPrefix = _rankPrefix(rank);
+    final playedDurationText =
+        item.playedDurationSeconds != null
+            ? _formatDurationCompact(item.playedDurationSeconds!)
+            : '--\'--';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color:
+            isTop3
+                ? const Color(0xFFFFFBEB)
+                : isMe
+                ? const Color(0xFFE8F5E9)
+                : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color:
+              isTop3 || isMe
+                  ? accentColor.withValues(alpha: 0.45)
+                  : Colors.transparent,
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: accentColor.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              '$rank',
+              style: TextStyle(fontWeight: FontWeight.w900, color: accentColor),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    if (rankPrefix.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: Text(
+                          rankPrefix,
+                          style: const TextStyle(fontSize: 15),
+                        ),
+                      ),
+                    Expanded(
+                      child: Text(
+                        item.playerName,
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: isTop3 ? accentColor : const Color(0xFF263238),
+                          fontWeight: FontWeight.w800,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (isMe)
+                      Container(
+                        margin: const EdgeInsets.only(left: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2E7D32),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: const Text(
+                          'Bạn',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _formatPlayedTime(item.playedAt),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF607D8B),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  playedDurationText,
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: accentColor,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${item.bestScore}',
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFF546E7A),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<String>(
@@ -79,6 +246,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         }
 
         final currentPlayerId = playerSnapshot.data ?? '';
+        final currentPlayerName =
+            PlayerProfileService.instance.currentProfile?.playerName ?? '';
 
         return Scaffold(
           appBar: AppBar(
@@ -169,9 +338,11 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                         ),
                       ),
                     Expanded(
-                      child: FutureBuilder<List<LeaderboardEntry>>(
-                        future: ScoreRepository.instance.getTop10Leaderboard(
-                          preferRemote: hasInternet,
+                      child: FutureBuilder<List<Object?>>(
+                        future: _loadLeaderboardBundle(
+                          hasInternet: hasInternet,
+                          playerId: currentPlayerId,
+                          playerName: currentPlayerName,
                         ),
                         builder: (context, snapshot) {
                           if (snapshot.connectionState ==
@@ -181,7 +352,17 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                             );
                           }
 
-                          final leaderboard = snapshot.data ?? [];
+                          final data = snapshot.data;
+                          final leaderboard =
+                              data != null && data.isNotEmpty
+                                  ? (data[0] as List<LeaderboardEntry>?) ??
+                                      const <LeaderboardEntry>[]
+                                  : const <LeaderboardEntry>[];
+                          final myRank =
+                              data != null && data.length > 1
+                                  ? data[1] as PlayerLeaderboardRank?
+                                  : null;
+
                           if (leaderboard.isEmpty) {
                             return const Center(
                               child: Text(
@@ -197,200 +378,99 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                             );
                           }
 
-                          return ListView.separated(
-                            padding: const EdgeInsets.all(16),
-                            itemCount: leaderboard.length,
-                            separatorBuilder:
-                                (_, __) => const SizedBox(height: 8),
-                            itemBuilder: (context, index) {
-                              final item = leaderboard[index];
-                              final rank = index + 1;
-                              final isTop3 = rank <= 3;
-                              final isMe = item.playerId == currentPlayerId;
-                              final accentColor = _rankAccentColor(rank);
-                              final rankPrefix = _rankPrefix(rank);
-                              final playedDurationText =
-                                  item.playedDurationSeconds != null
-                                      ? _formatDurationCompact(
-                                        item.playedDurationSeconds!,
-                                      )
-                                      : '--\'--';
+                          final isMeInVisibleTopList = leaderboard.any(
+                            (entry) =>
+                                entry.playerId == currentPlayerId ||
+                                (currentPlayerName.isNotEmpty &&
+                                    entry.playerName.trim().toLowerCase() ==
+                                        currentPlayerName.trim().toLowerCase()),
+                          );
+                          final showOutsideTop10 =
+                              myRank != null && !isMeInVisibleTopList;
+                          final shouldShowFirebaseMissingNotice =
+                              hasInternet && myRank == null;
+                          final rows = <Widget>[];
 
-                              return Container(
+                          if (shouldShowFirebaseMissingNotice) {
+                            rows.add(
+                              Container(
+                                width: double.infinity,
                                 padding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 12,
+                                  horizontal: 12,
+                                  vertical: 10,
                                 ),
                                 decoration: BoxDecoration(
-                                  color:
-                                      isTop3
-                                          ? const Color(0xFFFFFBEB)
-                                          : isMe
-                                          ? const Color(0xFFE8F5E9)
-                                          : Colors.white,
-                                  borderRadius: BorderRadius.circular(14),
+                                  color: const Color(0xFFFFF3E0),
+                                  borderRadius: BorderRadius.circular(10),
                                   border: Border.all(
-                                    color:
-                                        isTop3 || isMe
-                                            ? accentColor.withValues(
-                                              alpha: 0.45,
-                                            )
-                                            : Colors.transparent,
-                                    width: 1.5,
+                                    color: const Color(0xFFFFCC80),
                                   ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(
-                                        alpha: 0.06,
-                                      ),
-                                      blurRadius: 10,
-                                      offset: const Offset(0, 3),
-                                    ),
-                                  ],
                                 ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 38,
-                                      height: 38,
-                                      alignment: Alignment.center,
-                                      decoration: BoxDecoration(
-                                        color: accentColor.withValues(
-                                          alpha: 0.12,
-                                        ),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: Text(
-                                        '$rank',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w900,
-                                          color: accentColor,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              if (rankPrefix.isNotEmpty)
-                                                Padding(
-                                                  padding:
-                                                      const EdgeInsets.only(
-                                                        right: 6,
-                                                      ),
-                                                  child: Text(
-                                                    rankPrefix,
-                                                    style: const TextStyle(
-                                                      fontSize: 15,
-                                                    ),
-                                                  ),
-                                                ),
-                                              Expanded(
-                                                child: Text(
-                                                  item.playerName,
-                                                  style: TextStyle(
-                                                    fontSize: 16,
-                                                    color:
-                                                        isTop3
-                                                            ? accentColor
-                                                            : const Color(
-                                                              0xFF263238,
-                                                            ),
-                                                    fontWeight: FontWeight.w800,
-                                                  ),
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                ),
-                                              ),
-                                              if (isMe)
-                                                Container(
-                                                  margin: const EdgeInsets.only(
-                                                    left: 8,
-                                                  ),
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        horizontal: 8,
-                                                        vertical: 3,
-                                                      ),
-                                                  decoration: BoxDecoration(
-                                                    color: const Color(
-                                                      0xFF2E7D32,
-                                                    ),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          999,
-                                                        ),
-                                                  ),
-                                                  child: const Text(
-                                                    'Bạn',
-                                                    style: TextStyle(
-                                                      fontSize: 11,
-                                                      color: Colors.white,
-                                                      fontWeight:
-                                                          FontWeight.w700,
-                                                    ),
-                                                  ),
-                                                ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            _formatPlayedTime(item.playedAt),
-                                            style: const TextStyle(
-                                              fontSize: 13,
-                                              color: Color(0xFF607D8B),
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.end,
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 4,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: accentColor.withValues(
-                                              alpha: 0.12,
-                                            ),
-                                            borderRadius: BorderRadius.circular(
-                                              8,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            playedDurationText,
-                                            style: TextStyle(
-                                              fontSize: 18,
-                                              color: accentColor,
-                                              fontWeight: FontWeight.w900,
-                                              letterSpacing: 0.3,
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          '${item.bestScore}',
-                                          style: const TextStyle(
-                                            fontSize: 13,
-                                            color: Color(0xFF546E7A),
-                                            fontWeight: FontWeight.w800,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
+                                child: const Text(
+                                  'Chưa có dữ liệu của bạn trên Firebase. Hãy chơi 1 ván rồi bấm Làm mới.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFFE65100),
+                                  ),
                                 ),
-                              );
-                            },
+                              ),
+                            );
+                            rows.add(const SizedBox(height: 10));
+                          }
+
+                          for (
+                            int index = 0;
+                            index < leaderboard.length;
+                            index++
+                          ) {
+                            final item = leaderboard[index];
+                            final rank = index + 1;
+                            rows.add(
+                              _buildLeaderboardTile(
+                                item: item,
+                                rank: rank,
+                                isMe: item.playerId == currentPlayerId,
+                              ),
+                            );
+                            rows.add(const SizedBox(height: 8));
+                          }
+
+                          if (showOutsideTop10) {
+                            rows.add(
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 4),
+                                child: Center(
+                                  child: Text(
+                                    '------',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      color: Color(0xFF90A4AE),
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 1.2,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                            rows.add(
+                              _buildLeaderboardTile(
+                                item: myRank.entry,
+                                rank: myRank.rank,
+                                isMe: true,
+                              ),
+                            );
+                            rows.add(const SizedBox(height: 8));
+                          }
+
+                          if (rows.isNotEmpty) {
+                            rows.removeLast();
+                          }
+
+                          return ListView(
+                            padding: const EdgeInsets.all(16),
+                            children: rows,
                           );
                         },
                       ),

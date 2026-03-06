@@ -36,6 +36,7 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
   final List<_PendingCollisionSpawn> _pendingCollisionSpawns = [];
   final Set<int> _lockedFlyIds = <int>{};
   int _edgeSpawnCursor = 0;
+  int _difficultyLevel = 0;
   final List<Color> _mutantColors = const [
     Color(0xFF8E24AA),
     Color(0xFF00897B),
@@ -45,6 +46,54 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
   static const int _maxChildFlies = 100;
   static const int _maxTotalFlies = 240;
   static const int _maxNoodleDrops = 100;
+  static const List<int> _difficultyStartSeconds = [
+    0,
+    60,
+    120,
+    180,
+    240,
+    300,
+    360,
+    420,
+    480,
+    540,
+  ];
+  static const List<int> _spawnCountByDifficulty = [
+    2,
+    4,
+    4,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+  ];
+  static const List<double> _spawnIntervalByDifficulty = [
+    2.0,
+    2.0,
+    2.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+  ];
+  static const List<String> _difficultyLabels = [
+    'Level 1',
+    'Level 2',
+    'Level 3',
+    'Level 4',
+    'Level 5',
+    'Level 6',
+    'Level 7',
+    'Level 8',
+    'Level 9',
+    'Level 10',
+  ];
 
   int get _activeChildFlyCount =>
       children
@@ -54,6 +103,7 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
 
   late ScoreCard scoreCard;
   late NoodleBowl noodleBowl;
+  DifficultyNotice? difficultyNotice;
 
   FlySwatterGame({
     required this.playerProfile,
@@ -72,6 +122,10 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
     scoreCard = ScoreCard(position: Vector2(10, 10), game: this);
     add(scoreCard);
 
+    difficultyNotice = DifficultyNotice();
+    add(difficultyNotice!);
+    _updateDifficultyNoticePosition();
+
     _ensureInitialized();
   }
 
@@ -79,6 +133,9 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
   void onGameResize(Vector2 size) {
     super.onGameResize(size);
     _ensureInitialized();
+    if (difficultyNotice?.parent != null) {
+      _updateDifficultyNoticePosition();
+    }
     if (_initialized && noodleBowl.parent != null) {
       _updateNoodleBowlPosition();
     }
@@ -124,11 +181,20 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
     );
   }
 
+  void _updateDifficultyNoticePosition() {
+    final notice = difficultyNotice;
+    if (notice == null) return;
+    final panelWidth = max(220.0, min(360.0, size.x - 24));
+    notice.setPanelWidth(panelWidth);
+    notice.position = Vector2(size.x / 2, size.y / 2);
+  }
+
   @override
   void update(double dt) {
     super.update(dt);
 
     _ensureInitialized();
+    _updateDifficultyNoticePosition();
 
     if (gameOver) return;
 
@@ -138,23 +204,41 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
     if (currentSecond != _lastShownSecond) {
       _lastShownSecond = currentSecond;
       scoreCard.updateTime(currentSecond);
+      _updateDifficultyByTime(currentSecond);
     }
 
     _updatePendingCollisionSpawns(dt);
     _handleFlyCollisionSpawn();
 
+    final spawnInterval = _spawnIntervalByDifficulty[_difficultyLevel];
+    final spawnCount = _spawnCountByDifficulty[_difficultyLevel];
+
     normalSpawnTimer += dt;
-    while (normalSpawnTimer >= 1.0) {
-      normalSpawnTimer -= 1.0;
-      _spawnNormalFliesFromEdges(count: 2);
+    while (normalSpawnTimer >= spawnInterval) {
+      normalSpawnTimer -= spawnInterval;
+      _spawnNormalFliesFromEdges(count: spawnCount);
     }
   }
 
+  int _resolveDifficultyLevel(int seconds) {
+    for (int index = _difficultyStartSeconds.length - 1; index >= 0; index--) {
+      if (seconds >= _difficultyStartSeconds[index]) {
+        return index;
+      }
+    }
+    return 0;
+  }
+
+  void _updateDifficultyByTime(int seconds) {
+    final nextLevel = _resolveDifficultyLevel(seconds);
+    if (nextLevel == _difficultyLevel) return;
+
+    _difficultyLevel = nextLevel;
+    difficultyNotice?.show(_difficultyLabels[nextLevel]);
+  }
+
   void _spawnInitialEdgeWave() {
-    _spawnEdgeFly(_Edge.top);
-    _spawnEdgeFly(_Edge.right);
-    _spawnEdgeFly(_Edge.bottom);
-    _spawnEdgeFly(_Edge.left);
+    _spawnNormalFliesFromEdges(count: _spawnCountByDifficulty[0]);
   }
 
   void _spawnNormalFliesFromEdges({required int count}) {
@@ -317,6 +401,8 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
   }
 
   void _handleFlyCollisionSpawn() {
+    if (elapsedTime < 120) return;
+
     final activeFlies = children
         .whereType<Fly>()
         .where((fly) => !fly.isSwatted)
@@ -395,9 +481,15 @@ class FlySwatterGame extends FlameGame with HasCollisionDetection {
     }
   }
 
-  void spawnFlyDropping(Vector2 fromPosition) {
+  void spawnFlyDropping(Vector2 fromPosition, {Vector2? initialVelocity}) {
     if (gameOver) return;
-    add(FlyDropping(position: fromPosition, game: this));
+    add(
+      FlyDropping(
+        position: fromPosition,
+        game: this,
+        initialVelocity: initialVelocity,
+      ),
+    );
   }
 
   bool isPointInsideNoodleBowl(Vector2 worldPoint) {
@@ -482,6 +574,7 @@ class Fly extends PositionComponent with TapCallbacks {
   double _reproduceCooldown = 0;
   double _dropTimer = 0;
   double _nextDropInterval = 3.0;
+  bool _dropLeftNext = true;
 
   double wingAngle = 0;
   double animationTime = 0;
@@ -586,8 +679,22 @@ class Fly extends PositionComponent with TapCallbacks {
     _dropTimer += dt;
     if (_dropTimer < _nextDropInterval) return;
 
-    final dropPosition = position + Vector2(0, flySize * 0.34);
-    game.spawnFlyDropping(dropPosition);
+    // Visual sprite center appears ~20px right, so apply a fixed left correction.
+    const visualCenterCorrectionX = -20.0;
+
+    // Alternate left/right around corrected center to keep natural spread.
+    final side = _dropLeftNext ? -1.0 : 1.0;
+    _dropLeftNext = !_dropLeftNext;
+    final horizontalOffset =
+        side * (flySize * (0.07 + random.nextDouble() * 0.1));
+    final dropPosition =
+        position +
+        Vector2(visualCenterCorrectionX + horizontalOffset, flySize * 0.24);
+    final dropVelocity = Vector2(
+      velocity.x * 0.05 + (random.nextDouble() - 0.5) * 10,
+      24 + max(0, velocity.y * 0.12),
+    );
+    game.spawnFlyDropping(dropPosition, initialVelocity: dropVelocity);
     _scheduleNextDrop();
   }
 
@@ -611,8 +718,6 @@ class Fly extends PositionComponent with TapCallbacks {
       }
     }
 
-    _updateDropTimer(dt);
-
     if (_collisionLocked) {
       animationTime += dt * 12;
       wingAngle = sin(animationTime) * 0.12;
@@ -632,6 +737,8 @@ class Fly extends PositionComponent with TapCallbacks {
       velocity.y = -velocity.y;
       position.y = position.y.clamp(150, game.size.y - 150);
     }
+
+    _updateDropTimer(dt);
 
     changeDirectionTimer += dt;
     if (changeDirectionTimer >= changeDirectionInterval) {
@@ -805,6 +912,12 @@ class Fly extends PositionComponent with TapCallbacks {
         removeFromParent();
       });
     }
+  }
+
+  @override
+  bool containsLocalPoint(Vector2 point) {
+    final hitRadius = (flySize * 0.5) + 14;
+    return point.length2 <= hitRadius * hitRadius;
   }
 
   void lockForCollisionSpawn() {
@@ -1105,15 +1218,19 @@ class NoodleBowl extends PositionComponent {
 
 class FlyDropping extends PositionComponent {
   final FlySwatterGame game;
-  Vector2 velocity = Vector2(0, 30);
+  Vector2 velocity;
 
   static final Paint _dropPaint =
       Paint()
         ..color = const Color(0xFF5D4037)
         ..style = PaintingStyle.fill;
 
-  FlyDropping({required super.position, required this.game})
-    : super(size: Vector2.all(6), anchor: Anchor.center, priority: 1);
+  FlyDropping({
+    required super.position,
+    required this.game,
+    Vector2? initialVelocity,
+  }) : velocity = initialVelocity?.clone() ?? Vector2(0, 30),
+       super(size: Vector2.all(6), anchor: Anchor.center, priority: 1);
 
   @override
   void update(double dt) {
@@ -1323,6 +1440,91 @@ class ScoreCard extends PositionComponent {
               ? _timeWarningPaint
               : _timeNormalPaint;
     }
+  }
+}
+
+class DifficultyNotice extends PositionComponent {
+  late final TextComponent _noticeText;
+  double _remaining = 0;
+  bool _visible = false;
+  static final Vector2 _panelSize = Vector2(320, 78);
+  static const double _showDuration = 2.2;
+  static final Paint _shadowPaint = Paint()..color = const Color(0x77000000);
+  static final Paint _panelPaint = Paint()..color = const Color(0xFFF57C00);
+  static final Paint _borderPaint =
+      Paint()
+        ..color = const Color(0xFFFFF3E0)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2;
+
+  DifficultyNotice()
+    : super(size: _panelSize, anchor: Anchor.center, priority: 5);
+
+  @override
+  Future<void> onLoad() async {
+    _noticeText = TextComponent(
+      text: '',
+      position: _panelSize / 2,
+      anchor: Anchor.center,
+      textRenderer: TextPaint(
+        style: const TextStyle(
+          color: Color(0xFFFFF8E1),
+          fontSize: 28,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.4,
+          shadows: [
+            Shadow(
+              color: Color(0xB3000000),
+              blurRadius: 8,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+      ),
+    );
+    add(_noticeText);
+  }
+
+  void show(String message) {
+    _noticeText.text = message;
+    _remaining = _showDuration;
+    _visible = true;
+  }
+
+  void setPanelWidth(double width) {
+    size = Vector2(width, _panelSize.y);
+    _noticeText.position = size / 2;
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    if (_remaining <= 0) return;
+
+    _remaining -= dt;
+    if (_remaining <= 0) {
+      _visible = false;
+      _noticeText.text = '';
+    }
+  }
+
+  @override
+  void render(Canvas canvas) {
+    if (!_visible || _noticeText.text.isEmpty) return;
+
+    final rect = Rect.fromLTWH(0, 0, size.x, size.y);
+    final card = RRect.fromRectAndRadius(rect, const Radius.circular(22));
+    canvas.drawRRect(card.shift(const Offset(0, 4)), _shadowPaint);
+
+    _panelPaint.shader = ui.Gradient.linear(
+      Offset.zero,
+      Offset(size.x, size.y),
+      const [Color(0xFFF57C00), Color(0xFFE65100)],
+    );
+    canvas.drawRRect(card, _panelPaint);
+    canvas.drawRRect(card, _borderPaint);
+
+    super.render(canvas);
   }
 }
 

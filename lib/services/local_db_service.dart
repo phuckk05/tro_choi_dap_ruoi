@@ -310,7 +310,7 @@ class LocalDbService {
     return result;
   }
 
-  Future<List<LeaderboardEntry>> getTop10LocalLeaderboard() async {
+  Future<List<LeaderboardEntry>> getLocalLeaderboard() async {
     final db = await database;
     final rows = await db.query(
       'players',
@@ -349,6 +349,11 @@ class LocalDbService {
       return a.playedAt.compareTo(b.playedAt);
     });
 
+    return entries;
+  }
+
+  Future<List<LeaderboardEntry>> getTop10LocalLeaderboard() async {
+    final entries = await getLocalLeaderboard();
     return entries.take(10).toList();
   }
 }

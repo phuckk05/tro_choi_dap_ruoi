@@ -74,7 +74,7 @@ class GameOverScreen extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Text(
-                        'HẾT GIỜ',
+                        'Mỳ hết ăn rồi',
                         style: TextStyle(
                           fontSize: 30,
                           fontWeight: FontWeight.w800,
@@ -84,7 +84,7 @@ class GameOverScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        isNewRecord ? 'Kỷ lục mới 🎉' : 'Bạn làm tốt lắm!',
+                        isNewRecord ? 'Kỷ lục mới' : 'Bạn làm tốt lắm!',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 14,
