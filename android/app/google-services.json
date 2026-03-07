@@ -7,6 +7,25 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:631931094767:android:812cc6face01a19891bd1a",
+        "android_client_info": {
+          "package_name": "com.game.giumysach"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAs8qBtg6WmE9KI6HWx__pUXhCvg9wIAiM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:631931094767:android:89e9125a623a9f7191bd1a",
         "android_client_info": {
           "package_name": "com.game.phucdev"

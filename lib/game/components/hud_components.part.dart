@@ -112,7 +112,7 @@ class ScoreCard extends PositionComponent {
 
     // Chi hien combo khi >= 2 de tranh roi mat.
     if (combo > 1) {
-      comboText.text = 'x$combo🔥';
+      comboText.text = 'x$combo';
     } else {
       comboText.text = '';
     }
@@ -142,19 +142,210 @@ class ScoreCard extends PositionComponent {
   }
 }
 
+class ShieldEnergyBar extends PositionComponent {
+  double _remaining = 0;
+  double _maxDuration = 5;
+  bool _active = false;
+
+  ShieldEnergyBar({required super.position})
+    : super(size: Vector2(140, 16), anchor: Anchor.topLeft, priority: 2);
+
+  void setShield({required double remaining, required double maxDuration}) {
+    _remaining = remaining.clamp(0, 999);
+    _maxDuration = max(0.1, maxDuration);
+    _active = _remaining > 0;
+  }
+
+  @override
+  void render(Canvas canvas) {
+    if (!_active) return;
+
+    final baseRect = Rect.fromLTWH(0, 0, size.x, size.y);
+    final card = RRect.fromRectAndRadius(baseRect, const Radius.circular(9));
+
+    final bgPaint = Paint()..color = const Color(0xAA102027);
+    final borderPaint =
+        Paint()
+          ..color = const Color(0xB0FFFFFF)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.1;
+    canvas.drawRRect(card, bgPaint);
+
+    final ratio = (_remaining / _maxDuration).clamp(0, 1).toDouble();
+    if (ratio > 0) {
+      final fillRect = Rect.fromLTWH(
+        1.5,
+        1.5,
+        (size.x - 3) * ratio,
+        size.y - 3,
+      );
+      final fillRRect = RRect.fromRectAndRadius(
+        fillRect,
+        const Radius.circular(7),
+      );
+
+      final fillPaint =
+          Paint()
+            ..shader = ui.Gradient.linear(
+              fillRect.topLeft,
+              fillRect.topRight,
+              const [Color(0xFF80DEEA), Color(0xFF00ACC1)],
+            );
+      canvas.drawRRect(fillRRect, fillPaint);
+
+      final shinePaint =
+          Paint()
+            ..color = Colors.white.withValues(alpha: 0.24)
+            ..style = PaintingStyle.fill;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            fillRect.left,
+            fillRect.top,
+            fillRect.width,
+            fillRect.height * 0.45,
+          ),
+          const Radius.circular(7),
+        ),
+        shinePaint,
+      );
+    }
+
+    canvas.drawRRect(card, borderPaint);
+
+    final textPainter = TextPainter(
+      textDirection: TextDirection.ltr,
+      text: TextSpan(
+        text: 'Lá chắn ${_remaining.toStringAsFixed(1)}s',
+        style: const TextStyle(
+          color: Color(0xFFE0F7FA),
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          shadows: [
+            Shadow(
+              color: Color(0xCC000000),
+              blurRadius: 3,
+              offset: Offset(0, 1),
+            ),
+          ],
+        ),
+      ),
+    )..layout(maxWidth: size.x - 8);
+    textPainter.paint(
+      canvas,
+      Offset(
+        (size.x - textPainter.width) / 2,
+        (size.y - textPainter.height) / 2,
+      ),
+    );
+  }
+}
+
+class SlapEnergyBar extends PositionComponent {
+  double _remaining = 0;
+  double _maxDuration = 5;
+  bool _active = false;
+
+  SlapEnergyBar({required super.position})
+    : super(size: Vector2(140, 16), anchor: Anchor.topLeft, priority: 2);
+
+  void setSlap({required double remaining, required double maxDuration}) {
+    _remaining = remaining.clamp(0, 999);
+    _maxDuration = max(0.1, maxDuration);
+    _active = _remaining > 0;
+  }
+
+  @override
+  void render(Canvas canvas) {
+    if (!_active) return;
+
+    final baseRect = Rect.fromLTWH(0, 0, size.x, size.y);
+    final card = RRect.fromRectAndRadius(baseRect, const Radius.circular(9));
+
+    final bgPaint = Paint()..color = const Color(0xAA102027);
+    final borderPaint =
+        Paint()
+          ..color = const Color(0xB0FFFFFF)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.1;
+    canvas.drawRRect(card, bgPaint);
+
+    final ratio = (_remaining / _maxDuration).clamp(0, 1).toDouble();
+    if (ratio > 0) {
+      final fillRect = Rect.fromLTWH(
+        1.5,
+        1.5,
+        (size.x - 3) * ratio,
+        size.y - 3,
+      );
+      final fillRRect = RRect.fromRectAndRadius(
+        fillRect,
+        const Radius.circular(7),
+      );
+
+      final fillPaint =
+          Paint()
+            ..shader = ui.Gradient.linear(
+              fillRect.topLeft,
+              fillRect.topRight,
+              const [Color(0xFFFFCC80), Color(0xFFEF6C00)],
+            );
+      canvas.drawRRect(fillRRect, fillPaint);
+
+      final shinePaint =
+          Paint()
+            ..color = Colors.white.withValues(alpha: 0.22)
+            ..style = PaintingStyle.fill;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            fillRect.left,
+            fillRect.top,
+            fillRect.width,
+            fillRect.height * 0.45,
+          ),
+          const Radius.circular(7),
+        ),
+        shinePaint,
+      );
+    }
+
+    canvas.drawRRect(card, borderPaint);
+
+    final textPainter = TextPainter(
+      textDirection: TextDirection.ltr,
+      text: TextSpan(
+        text: 'Vợt ${_remaining.toStringAsFixed(1)}s',
+        style: const TextStyle(
+          color: Color(0xFFFFF3E0),
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          shadows: [
+            Shadow(
+              color: Color(0xCC000000),
+              blurRadius: 3,
+              offset: Offset(0, 1),
+            ),
+          ],
+        ),
+      ),
+    )..layout(maxWidth: size.x - 8);
+    textPainter.paint(
+      canvas,
+      Offset(
+        (size.x - textPainter.width) / 2,
+        (size.y - textPainter.height) / 2,
+      ),
+    );
+  }
+}
+
 class DifficultyNotice extends PositionComponent {
   late final TextComponent _noticeText;
   double _remaining = 0;
   bool _visible = false;
   static final Vector2 _panelSize = Vector2(320, 78);
-  static const double _showDuration = 2.2;
-  static final Paint _shadowPaint = Paint()..color = const Color(0x77000000);
-  static final Paint _panelPaint = Paint()..color = const Color(0xFFF57C00);
-  static final Paint _borderPaint =
-      Paint()
-        ..color = const Color(0xFFFFF3E0)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.2;
+  static const double _showDuration = 1.8;
 
   DifficultyNotice()
     : super(size: _panelSize, anchor: Anchor.center, priority: 5);
@@ -167,8 +358,8 @@ class DifficultyNotice extends PositionComponent {
       anchor: Anchor.center,
       textRenderer: TextPaint(
         style: const TextStyle(
-          color: Color(0xFFFFF8E1),
-          fontSize: 28,
+          color: Color(0xFFFDF7E8),
+          fontSize: 25,
           fontWeight: FontWeight.w900,
           letterSpacing: 0.4,
           shadows: [
@@ -184,10 +375,10 @@ class DifficultyNotice extends PositionComponent {
     add(_noticeText);
   }
 
-  void show(String message) {
+  void show(String message, {double duration = _showDuration}) {
     // Hien banner trong mot khoang ngan moi khi len cap do kho.
     _noticeText.text = message;
-    _remaining = _showDuration;
+    _remaining = duration;
     _visible = true;
   }
 
@@ -212,19 +403,33 @@ class DifficultyNotice extends PositionComponent {
   void render(Canvas canvas) {
     if (!_visible || _noticeText.text.isEmpty) return;
 
-    // Card thong bao co gradient + shadow de doc tren moi background.
-    final rect = Rect.fromLTWH(0, 0, size.x, size.y);
-    final card = RRect.fromRectAndRadius(rect, const Radius.circular(22));
-    canvas.drawRRect(card.shift(const Offset(0, 4)), _shadowPaint);
-
-    _panelPaint.shader = ui.Gradient.linear(
-      Offset.zero,
-      Offset(size.x, size.y),
-      const [Color(0xFFF57C00), Color(0xFFE65100)],
-    );
-    canvas.drawRRect(card, _panelPaint);
-    canvas.drawRRect(card, _borderPaint);
-
     super.render(canvas);
+  }
+}
+
+class ScreenFlashEffect extends PositionComponent {
+  final Vector2 screenSize;
+  final double duration;
+  double _remaining;
+  static final Paint _flashPaint = Paint()..style = PaintingStyle.fill;
+
+  ScreenFlashEffect({required this.screenSize, this.duration = 0.18})
+    : _remaining = duration,
+      super(size: screenSize, position: Vector2.zero(), priority: 6);
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    _remaining -= dt;
+    if (_remaining <= 0) {
+      removeFromParent();
+    }
+  }
+
+  @override
+  void render(Canvas canvas) {
+    final t = (_remaining / duration).clamp(0, 1);
+    _flashPaint.color = const Color(0xFFFFF3E0).withValues(alpha: t * 0.1);
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.x, size.y), _flashPaint);
   }
 }

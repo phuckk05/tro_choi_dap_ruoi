@@ -46,15 +46,13 @@ class Cloud extends PositionComponent {
 // Lop co nen o day man hinh, gom gradient va cac ngon co ve san de toi uu render.
 class Grass extends PositionComponent {
   late Paint _grassPaint;
-  late final List<Path> _bladePaths;
-  late final List<Paint> _bladePaints;
 
   Grass({required super.position}) : super(priority: -5);
 
   @override
   Future<void> onLoad() async {
     final game = parent as FlySwatterGame;
-    size = Vector2(game.size.x, 80);
+    size = Vector2(game.size.x, 100);
 
     // Nen co dang gradient tu dam sang nhat theo chieu doc.
     _grassPaint =
@@ -63,53 +61,12 @@ class Grass extends PositionComponent {
             const Color(0xFF4CAF50),
             const Color(0xFF66BB6A),
           ]);
-
-    _bladePaths = <Path>[];
-    _bladePaints = <Paint>[];
-
-    // Seed co dinh giup hinh dang co on dinh qua moi lan chay game.
-    final random = Random(42);
-    for (int i = 0; i < size.x; i += 15) {
-      final x = i.toDouble();
-      final height = 20 + random.nextDouble() * 15;
-      final greenShade = random.nextInt(3);
-      final color =
-          [
-            const Color(0xFF388E3C),
-            const Color(0xFF43A047),
-            const Color(0xFF2E7D32),
-          ][greenShade];
-
-      final path =
-          Path()
-            ..moveTo(x, size.y)
-            // Duong cong quadratic tao ngon co cong nhe.
-            ..quadraticBezierTo(
-              x + random.nextDouble() * 6 - 3,
-              size.y - height / 2,
-              x + random.nextDouble() * 8 - 4,
-              size.y - height,
-            );
-
-      _bladePaths.add(path);
-      _bladePaints.add(
-        Paint()
-          ..color = color
-          ..strokeWidth = 3
-          ..strokeCap = StrokeCap.round
-          ..style = PaintingStyle.stroke,
-      );
-    }
   }
 
   @override
   void render(Canvas canvas) {
-    // Ve lop nen co truoc, sau do ve tung ngon co len tren.
+    // Ve lop nen co don gian, khong co cac ngon co nho.
     canvas.drawRect(Rect.fromLTWH(0, 0, size.x, size.y), _grassPaint);
-
-    for (int i = 0; i < _bladePaths.length; i++) {
-      canvas.drawPath(_bladePaths[i], _bladePaints[i]);
-    }
   }
 }
 
