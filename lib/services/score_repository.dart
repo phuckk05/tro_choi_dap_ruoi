@@ -21,6 +21,9 @@ class ScoreRepository {
   static final ScoreRepository instance = ScoreRepository._();
 
   final LocalDbService _db = LocalDbService.instance;
+  final Map<String, DateTime> _lastPushAttemptByPlayer = {};
+
+  static const Duration _minPushInterval = Duration(seconds: 5);
 
   bool _watcherStarted = false;
 
@@ -28,6 +31,7 @@ class ScoreRepository {
     if (_watcherStarted) return;
     _watcherStarted = true;
 
+    // Co mang la trigger sync lai queue dang pending.
     InternetStatusService.instance.hasInternet.addListener(() {
       syncPendingBestScores();
     });
@@ -42,6 +46,7 @@ class ScoreRepository {
     int? defeatSeconds,
     int? flyCountAtDefeat,
   }) async {
+    // Luon ghi local truoc de dam bao khong mat du lieu khi mat mang.
     await _db.insertScoreEvent(
       profile,
       score,
@@ -58,6 +63,7 @@ class ScoreRepository {
     );
 
     if (!shouldSyncBestRecord) {
+      // Khong co best moi: chi cap nhat cloud neu can dong bo thoi gian/ten.
       if (!_canSyncNow || defeatSeconds == null) return;
 
       final playerBest = await _db.getPlayerBestRecordByPlayerId(
@@ -123,6 +129,7 @@ class ScoreRepository {
   Future<void> syncPendingBestScores() async {
     if (!_canSyncNow) return;
 
+    // Day lan luot cac best record dang cho len cloud.
     final pending = await _db.getPendingBestRecords();
     final secendtiemByPlayer = await _db.getLatestSecendtiemByPlayerIds(
       pending.map((record) => record.playerId).toList(),
@@ -144,6 +151,7 @@ class ScoreRepository {
   Future<List<LeaderboardEntry>> getTop10Leaderboard({
     required bool preferRemote,
   }) async {
+    // Uu tien cloud khi co mang, neu loi thi fallback local.
     if (preferRemote && _canUseFirebase) {
       try {
         final topList = (await _getRemoteRankedEntries()).take(10).toList();
@@ -335,6 +343,7 @@ class ScoreRepository {
     final snapshot =
         await _firestore!.collection('leaderboard').limit(5000).get();
 
+    // Gom ban ghi theo playerId de tranh trung du lieu tren cloud.
     final byPlayerId = <String, LeaderboardEntry>{};
     for (final doc in snapshot.docs) {
       final data = doc.data();
@@ -367,6 +376,7 @@ class ScoreRepository {
       }
     }
 
+    // Xep hang uu tien thoi gian song sot, tiep den diem.
     final ranked =
         byPlayerId.values.toList()..sort((a, b) {
           final durationCompare = (b.playedDurationSeconds ?? 0).compareTo(
@@ -398,6 +408,10 @@ class ScoreRepository {
     required DateTime playedAt,
     int? secendtiem,
   }) async {
+    // Giam tan suat push cung mot player de tranh spam mang/cloud.
+    if (_isPushThrottled(playerId)) return;
+    _lastPushAttemptByPlayer[playerId] = DateTime.now();
+
     final synced = await _pushBestScoreToFirebase(
       playerId: playerId,
       playerName: playerName,
@@ -409,6 +423,13 @@ class ScoreRepository {
     if (synced) {
       await _db.markPlayerSynced(playerId);
     }
+  }
+
+  bool _isPushThrottled(String playerId) {
+    final now = DateTime.now();
+    final lastAttempt = _lastPushAttemptByPlayer[playerId];
+    if (lastAttempt == null) return false;
+    return now.difference(lastAttempt) < _minPushInterval;
   }
 
   Future<bool> _pushBestScoreToFirebase({
@@ -429,6 +450,7 @@ class ScoreRepository {
           secendtiem ??
           (await _db.getLatestSecendtiemByPlayerIds([playerId]))[playerId];
 
+      // Chuan hoa ve 1 document/player theo playerId.
       if (!current.exists) {
         final samePlayerSnapshot =
             await leaderboard
@@ -468,6 +490,7 @@ class ScoreRepository {
         final shouldPromoteScore = bestScore > remoteBest;
         final shouldUpdateName = remoteName != playerName.trim();
 
+        // Chi push khi co gia tri cai thien hoac doi ten.
         if (!shouldPromoteDuration &&
             !shouldPromoteScore &&
             !shouldUpdateName) {

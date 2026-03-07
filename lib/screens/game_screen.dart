@@ -24,6 +24,7 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Future<_GameBootstrapData> _loadBootstrapData() async {
+    // Lay profile + ky luc truoc khi tao game instance.
     final profile = await PlayerProfileService.instance.ensureProfile();
     final bestScore = await ScoreRepository.instance.getPlayerBestScore(
       profile.playerId,
@@ -35,6 +36,7 @@ class _GameScreenState extends State<GameScreen> {
     BuildContext context,
     PlayerProfile profile,
   ) async {
+    // Dialog xac nhan tranh thoat nham trong luc choi.
     final shouldExit = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
@@ -130,6 +132,7 @@ class _GameScreenState extends State<GameScreen> {
     );
 
     if (shouldExit == true && context.mounted) {
+      // Dong bo ten player neu co thay doi truoc khi ve menu.
       await ScoreRepository.instance.syncPlayerProfileName(profile);
       if (!context.mounted) return;
       Navigator.pushReplacementNamed(context, '/');

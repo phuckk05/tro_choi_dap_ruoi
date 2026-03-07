@@ -1,0 +1,18 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Release (APK+AAB)",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "./tool/build_release.ps1"
+            ],
+            "group": "build",
+            "problemMatcher": []
+        }
+    ]
+}

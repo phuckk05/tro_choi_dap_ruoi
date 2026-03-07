@@ -5,45 +5,57 @@ service cloud.firestore {
     match /leaderboard/{playerId} {
       allow read: if true;
 
-      allow create: if request.resource.data.keys().hasOnly([
+      function validKeys() {
+        return request.resource.data.keys().hasOnly([
           'playerId',
           'playerName',
           'bestScore',
           'secendtiem',
           'playedAt',
           'updatedAt'
-        ])
-        && request.resource.data.playerId == playerId
-        && request.resource.data.playerName is string
-        && request.resource.data.playerName.size() > 0
-        && request.resource.data.playerName.size() <= 30
-        && request.resource.data.bestScore is int
-        && request.resource.data.bestScore >= 0
-        && (!('secendtiem' in request.resource.data)
+        ]);
+      }
+
+      function validBaseFields() {
+        return request.resource.data.playerId == playerId
+          && request.resource.data.playerName is string
+          && request.resource.data.playerName.size() > 0
+          && request.resource.data.playerName.size() <= 30
+          && request.resource.data.bestScore is int
+          && request.resource.data.bestScore >= 0
+          && request.resource.data.playedAt is timestamp
+          && request.resource.data.updatedAt is timestamp
+          // Must use server timestamp from the request, not client-provided date.
+          && request.resource.data.updatedAt == request.time
+          && (!('secendtiem' in request.resource.data)
             || (request.resource.data.secendtiem is int
-                && request.resource.data.secendtiem >= 0))
-        && request.resource.data.playedAt is timestamp;
+              && request.resource.data.secendtiem >= 0));
+      }
+
+      function validUpdateProgression() {
+        return (!(resource.data.bestScore is int)
+            || request.resource.data.bestScore >= resource.data.bestScore)
+          && (!('secendtiem' in resource.data)
+            || !('secendtiem' in request.resource.data)
+            || request.resource.data.secendtiem >= resource.data.secendtiem)
+          && request.resource.data.playedAt is timestamp
+          && resource.data.playedAt is timestamp
+          && request.resource.data.playedAt >= resource.data.playedAt;
+      }
+
+      function passRateLimit() {
+        return !('updatedAt' in resource.data)
+          || !(resource.data.updatedAt is timestamp)
+          || request.time >= resource.data.updatedAt + duration.value(5, 's');
+      }
+
+      allow create: if validKeys() && validBaseFields();
 
       allow update: if resource.data.playerId == playerId
-        && request.resource.data.keys().hasOnly([
-          'playerId',
-          'playerName',
-          'bestScore',
-          'secendtiem',
-          'playedAt',
-          'updatedAt'
-        ])
-        && request.resource.data.playerId == playerId
-        && request.resource.data.playerName is string
-        && request.resource.data.playerName.size() > 0
-        && request.resource.data.playerName.size() <= 30
-        && request.resource.data.bestScore is int
-        && (!(resource.data.bestScore is int)
-            || request.resource.data.bestScore >= resource.data.bestScore)
-        && (!('secendtiem' in request.resource.data)
-            || (request.resource.data.secendtiem is int
-                && request.resource.data.secendtiem >= 0))
-        && request.resource.data.playedAt is timestamp;
+        && validKeys()
+        && validBaseFields()
+        && validUpdateProgression()
+        && passRateLimit();
 
       allow delete: if false;
     }

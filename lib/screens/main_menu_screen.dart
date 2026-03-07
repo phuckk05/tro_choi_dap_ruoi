@@ -140,7 +140,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         const Text(
-                          'ĐẬP RUỒI',
+                          'GIỮ MỲ SẠCH',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 34,

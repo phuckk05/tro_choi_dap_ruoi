@@ -40,6 +40,7 @@ class LocalDbService {
       path,
       version: 3,
       onCreate: (db, version) async {
+        // Bang tong hop best score moi player.
         await db.execute('''
           CREATE TABLE players (
             player_id TEXT PRIMARY KEY,
@@ -51,6 +52,7 @@ class LocalDbService {
           )
         ''');
 
+        // Bang log tung tran cho thong ke va truy vet du lieu.
         await db.execute('''
           CREATE TABLE score_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,6 +60,7 @@ class LocalDbService {
             player_name TEXT NOT NULL,
             score INTEGER NOT NULL,
             defeat_seconds INTEGER,
+            -- Giu ten cot cu de tuong thich du lieu da phat hanh.
             secendtiem INTEGER,
             fly_count_at_defeat INTEGER,
             played_at TEXT NOT NULL,
@@ -75,6 +78,7 @@ class LocalDbService {
           );
         }
         if (oldVersion < 3) {
+          // Bo sung cot thoi gian theo schema cu (secendtiem).
           await db.execute(
             'ALTER TABLE score_events ADD COLUMN secendtiem INTEGER',
           );
@@ -281,6 +285,7 @@ class LocalDbService {
   Future<Map<String, int>> getLatestSecendtiemByPlayerIds(
     List<String> playerIds,
   ) async {
+    // Lay thoi gian lon nhat moi player de dong bo voi leaderboard.
     if (playerIds.isEmpty) return const {};
 
     final db = await database;
